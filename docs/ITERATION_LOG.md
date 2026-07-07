@@ -59,10 +59,15 @@ restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1b
     compartidos) probados directamente; pipeline async (`_classify_captured`,
     `_process_pending`, `_run_loop`, start/stop) con store/event_bus/taxonomy-runner
     mockeados y sleep monkeypatcheado. Módulo: **0% → 98%**.
+  - `test(cov)`: `tests/test_scheduler_codex.py` (14 tests) para
+    `app/services/scheduler.py` — `_process_scheduled` (sin store, vacío, mueve+publica,
+    error de evento/store tragado), `_sync_calendar` (deshabilitado, conectado+sync, no
+    conectado, error tragado; `get_google_calendar` parcheado), `get_status`, singleton,
+    start/stop y `_run_loop` (ciclo + cancelación + rama de error). Módulo: **0% → 99%**.
 
 - **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
-  (66 ficheros, 0 errores; eran 671) · test ✓ (382 pass + 20 SDK, 2 skip) · cov ✓
-  (**35.64%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
+  (66 ficheros, 0 errores; eran 671) · test ✓ (396 pass + 20 SDK, 2 skip) · cov ✓
+  (**37.39%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
   residuales.
 
 - **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
