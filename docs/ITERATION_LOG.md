@@ -64,11 +64,18 @@ restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1b
     error de evento/store tragado), `_sync_calendar` (deshabilitado, conectado+sync, no
     conectado, error tragado; `get_google_calendar` parcheado), `get_status`, singleton,
     start/stop y `_run_loop` (ciclo + cancelación + rama de error). Módulo: **0% → 99%**.
+  - `test(cov)`: `tests/test_prompt_executor_codex.py` (17 tests) para
+    `app/services/prompt_executor.py` — `_reset_daily_counters`, `_call_model` (sin
+    orchestrator, auto-upgrade paid en work/plan, excepción), `_review_output` (parse+clamp,
+    número inválido, excepción), `_execute_prompt` (happy path + eventos, review en work,
+    fallo de modelo, excepción→failed, errores de evento tragados), start/stop y `_run_loop`.
+    Módulo: **0% → 100%**.
+  - `chore(cov)`: gate de cobertura **28% → 37%** en `make cov` (ratchet; medido 39%).
 
 - **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
-  (66 ficheros, 0 errores; eran 671) · test ✓ (396 pass + 20 SDK, 2 skip) · cov ✓
-  (**37.39%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
-  residuales.
+  (66 ficheros, 0 errores; eran 671) · test ✓ (413 pass + 20 SDK, 2 skip) · cov ✓
+  (**39.06%** ≥ gate 37%, era 29.82%/gate 28). Nada arrancado (ni gateway ni infra); sin
+  procesos residuales.
 
 - **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
   (autorizadas por Jessicache). Ratchet mypy: re-endurecer los flags relajados de uno en
