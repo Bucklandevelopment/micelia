@@ -16,6 +16,49 @@
 
 ---
 
+## 2026-07-07 — Ciclo 3 (verify 100% VERDE por primera vez · 3 decisiones desbloqueadas)
+
+**Contexto:** Jessicache autorizó las 3 DECISIONES PENDIENTES ("adelante los tres").
+Con ellas desbloqueadas, la tarea del día es la prioridad #1 del protocolo: rojo→verde
+en `make verify`, que nunca había estado verde (paraba en typecheck). Se aplicó el
+baseline mypy pragmático (ya presente en pyproject) y se resolvieron los 128 errores
+restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1ba50).
+
+- **Hecho:**
+  - `fix(types)`: 128 errores mypy resueltos en 23 ficheros (5 agentes paralelos,
+    verificados centralmente). Patrones: `param: T = None`→`Optional[T]`; atributos de
+    recurso None-init anotados a tipo concreto + `# type: ignore[assignment]` (contrato
+    "initialize()/connect() primero"); var-annotated explícitas. **Bugs reales
+    corregidos:** `google_calendar` llamaba `prompt_store.get_prompt_store()` (no existe)
+    → usa `PromptStore()` con `initialize()/close()`; `frangels` leía
+    `InferenceResult.cached` (no hay cache) → `False`; dicts inferidos demasiado
+    estrechos (ai/routine/tunnel/service_registry/markdown_sync/prompt_agent/cli) →
+    `dict[str, Any]`. Sin bare ignores.
+  - `fix(osascript)`: `get_today_events` ahora honra `calendar_name` (antes recorría
+    TODOS los calendarios ignorando el parámetro) — bug latente #2 resuelto.
+  - `style(lint)`: 14 residuales ruff (SQLAlchemy `.isnot()/.is_()`, E402 noqa
+    justificado en imports seccionales, E741, F841); `[tool.ruff]`→`[tool.ruff.lint]`.
+  - `fix(deps)` + `test(cov)` (ya commiteados en ciclos previos de hoy): `coverage[toml]`
+    para desbloquear `make cov`; `conftest` inserta `sdk/python` en sys.path (idm_sdk sin
+    editable install); `tests/test_agents_crew.py` (agent_definitions/workflows/crew_manager).
+
+- **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
+  (66 ficheros, 0 errores; eran 671) · test ✓ (315 pass + 20 SDK, 2 skip) · cov ✓
+  (**29.82%** ≥ gate 28%). Nada arrancado (ni gateway ni infra); sin procesos residuales.
+
+- **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
+  (autorizadas por Jessicache). Ratchet mypy: re-endurecer los flags relajados de uno en
+  uno (`disallow_untyped_defs` → `disallow_untyped_calls` → `disallow_any_generics` → …)
+  hacia `strict=true`.
+- **Pendiente menor:** `app/models/user.py`, `app/services/user_store.py`,
+  `tests/test_user_store_codex.py` (feature UserStore en curso de Jessicache) quedan SIN
+  commitear en este ciclo (no son trabajo de la tarea diaria). Directorio legacy
+  `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+- **Mañana:** arrancar el ratchet mypy (activar `disallow_untyped_defs` en un subpaquete
+  y anotarlo) o subir cobertura hacia el objetivo v0.2 = 45%.
+
+---
+
 ## 2026-07-07 — Ciclo 2 (cobertura +4.1 pts con módulos puros)
 
 **Contexto:** las prioridades #1 (rojo→verde en verify) y #2 (roadmap) siguen
