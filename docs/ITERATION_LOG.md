@@ -41,10 +41,18 @@ restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1b
   - `fix(deps)` + `test(cov)` (ya commiteados en ciclos previos de hoy): `coverage[toml]`
     para desbloquear `make cov`; `conftest` inserta `sdk/python` en sys.path (idm_sdk sin
     editable install); `tests/test_agents_crew.py` (agent_definitions/workflows/crew_manager).
+  - `test(cov)`: `tests/test_service_registry_codex.py` (17 tests, httpx mockeado con
+    AsyncMock — sin red ni infra) para `app/services/service_registry.py`. Cubre
+    `_check_health` (200+versión, non-200, JSON inválido, timeout, connect-error, excepción
+    genérica, servicio desconocido, recuperación), `_log_failure` (3 ramas de nivel),
+    `check_service` (found/not-found), getters, `discover_services` (registro + hint) y
+    `_continuous_monitoring` (un ciclo + cancelación, sleep monkeypatcheado). Módulo:
+    **0% → 97%**.
 
 - **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
-  (66 ficheros, 0 errores; eran 671) · test ✓ (315 pass + 20 SDK, 2 skip) · cov ✓
-  (**29.82%** ≥ gate 28%). Nada arrancado (ni gateway ni infra); sin procesos residuales.
+  (66 ficheros, 0 errores; eran 671) · test ✓ (332 pass + 20 SDK, 2 skip) · cov ✓
+  (**31.50%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
+  residuales.
 
 - **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
   (autorizadas por Jessicache). Ratchet mypy: re-endurecer los flags relajados de uno en
