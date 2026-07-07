@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamSouls — Viaja Solo. Vuelve Acompañado.</title>
+    <meta name="description" content="Viajes sociales gamificados para desconocidos que quieren dejar de serlo. OVERFLOW y INTIMATE experiences.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* StreamSouls Colors */
+            --coral: #FF6B6B;
+            --coral-glow: rgba(255, 107, 107, 0.4);
+            --turquoise: #4ECDC4;
+            --turquoise-glow: rgba(78, 205, 196, 0.4);
+            --gold: #FFE66D;
+            --gold-glow: rgba(255, 230, 109, 0.3);
+            
+            /* Dark Theme */
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a25;
+            --bg-card-hover: #22222f;
+            
+            /* Text */
+            --text-primary: #f0f0f5;
+            --text-secondary: #8a8a9a;
+            --text-muted: #5a5a6a;
+            
+            /* Borders */
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(255, 107, 107, 0.3);
+            
+            /* Gradients */
+            --gradient-hero: linear-gradient(135deg, var(--coral) 0%, var(--turquoise) 100%);
+            --gradient-card: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
+            
+            /* Spacing */
+            --section-padding: clamp(4rem, 10vw, 8rem);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        /* Noise Overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        
+        /* Scanlines */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.3;
+        }
+        
+        a {
+            color: var(--coral);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+        
+        a:hover {
+            color: var(--turquoise);
+            text-shadow: 0 0 20px var(--turquoise-glow);
+        }
+        
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .nav-logo {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.8rem;
+            letter-spacing: 0.15em;
+            background: var(--gradient-hero);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+        
+        .nav-links a {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            position: relative;
+        }
+        
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--gradient-hero);
+            transition: width 0.3s ease;
+        }
+        
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+        
+        .nav-cta {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            padding: 0.75rem 1.5rem;
+            background: var(--gradient-hero);
+            color: var(--bg-primary);
+            font-weight: 600;
+            border-radius: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px var(--coral-glow);
+            color: var(--bg-primary);
+        }
+        
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 6rem 2rem 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(ellipse at 20% 50%, var(--coral-glow) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 50%, var(--turquoise-glow) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 100%, var(--gold-glow) 0%, transparent 40%);
+            opacity: 0.4;
+            animation: heroGlow 8s ease-in-out infinite alternate;
+        }
+        
+        @keyframes heroGlow {
+            0% { transform: scale(1) rotate(0deg); opacity: 0.3; }
+            100% { transform: scale(1.1) rotate(3deg); opacity: 0.5; }
+        }
+        
+        .hero-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3em;
+            color: var(--turquoise);
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--turquoise);
+            margin-bottom: 2rem;
+            position: relative;
+            z-index: 1;
+            animation: fadeInUp 0.8s ease forwards;
+            opacity: 0;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .hero-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: clamp(3rem, 12vw, 10rem);
+            letter-spacing: 0.05em;
+            line-height: 0.9;
+            margin-bottom: 1.5rem;
+            position: relative;
+            z-index: 1;
+            animation: fadeInUp 0.8s ease 0.2s forwards;
+            opacity: 0;
+        }
+        
+        .hero-title .highlight {
+            background: var(--gradient-hero);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero-subtitle {
+            font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: 3rem;
+            position: relative;
+            z-index: 1;
+            animation: fadeInUp 0.8s ease 0.4s forwards;
+            opacity: 0;
+        }
+        
+        .hero-ctas {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+            animation: fadeInUp 0.8s ease 0.6s forwards;
+            opacity: 0;
+        }
+        
+        .btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            padding: 1rem 2rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-primary {
+            background: var(--gradient-hero);
+            color: var(--bg-primary);
+            font-weight: 600;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px var(--coral-glow);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--turquoise);
+            color: var(--turquoise);
+            box-shadow: inset 0 0 20px var(--turquoise-glow);
+        }
+        
+        .hero-scroll {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            letter-spacing: 0.2em;
+            animation: bounce 2s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(10px); }
+        }
+        
+        /* Section Common */
+        section {
+            padding: var(--section-padding) 2rem;
+            position: relative;
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        
+        .section-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3em;
+            color: var(--coral);
+            margin-bottom: 1rem;
+            display: inline-block;
+        }
+        
+        .section-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+        
+        .section-desc {
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        /* How It Works */
+        .how-it-works {
+            background: var(--bg-secondary);
+        }
+        
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .step {
+            background: var(--gradient-card);
+            padding: 2.5rem;
+            border: 1px solid var(--border-subtle);
+            position: relative;
+            transition: all 0.4s ease;
+        }
+        
+        .step::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: var(--gradient-hero);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s ease;
+        }
+        
+        .step:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .step:hover {
+            transform: translateY(-5px);
+            border-color: var(--coral);
+            box-shadow: 0 20px 60px rgba(255, 107, 107, 0.1);
+        }
+        
+        .step-number {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 4rem;
+            background: var(--gradient-hero);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+        
+        .step-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        .step-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        
+        /* Active Trips */
+        .trips {
+            background: var(--bg-primary);
+        }
+        
+        .trips-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .trip-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            transition: all 0.4s ease;
+            position: relative;
+        }
+        
+        .trip-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+        }
+        
+        .trip-card.overflow {
+            border-color: rgba(255, 107, 107, 0.3);
+        }
+        
+        .trip-card.intimate {
+            border-color: rgba(78, 205, 196, 0.3);
+        }
+        
+        .trip-image {
+            height: 200px;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }
+        
+        .trip-image::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60%;
+            background: linear-gradient(transparent, var(--bg-card));
+        }
+        
+        .trip-badge {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            padding: 0.4rem 0.8rem;
+            font-weight: 600;
+        }
+        
+        .trip-badge.overflow {
+            background: var(--coral);
+            color: var(--bg-primary);
+        }
+        
+        .trip-badge.intimate {
+            background: var(--turquoise);
+            color: var(--bg-primary);
+        }
+        
+        .trip-content {
+            padding: 1.5rem 2rem 2rem;
+        }
+        
+        .trip-destination {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .trip-flag {
+            font-size: 1.5rem;
+        }
+        
+        .trip-name {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 2rem;
+            letter-spacing: 0.05em;
+        }
+        
+        .trip-dates {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+        }
+        
+        .trip-progress {
+            margin-bottom: 1rem;
+        }
+        
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .progress-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .progress-bar {
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s ease;
+        }
+        
+        .progress-fill.overflow {
+            background: linear-gradient(90deg, var(--coral), var(--gold));
+        }
+        
+        .progress-fill.intimate {
+            background: linear-gradient(90deg, var(--turquoise), var(--gold));
+        }
+        
+        .trip-unlocks {
+            margin-bottom: 1.5rem;
+        }
+        
+        .unlock {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.3rem;
+        }
+        
+        .unlock-icon {
+            font-size: 0.9rem;
+        }
+        
+        .unlock.active .unlock-icon {
+            color: var(--gold);
+        }
+        
+        .unlock.active {
+            color: var(--text-primary);
+        }
+        
+        .trip-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+        
+        .trip-price {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.8rem;
+        }
+        
+        .trip-price span {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        
+        .trip-cta {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            padding: 0.75rem 1.25rem;
+            background: transparent;
+            border: 1px solid var(--coral);
+            color: var(--coral);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .trip-cta:hover {
+            background: var(--coral);
+            color: var(--bg-primary);
+        }
+        
+        /* Terminal Feed */
+        .terminal-section {
+            background: var(--bg-secondary);
+        }
+        
+        .terminal {
+            max-width: 800px;
+            margin: 0 auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .terminal-dot.red { background: #ff5f56; }
+        .terminal-dot.yellow { background: #ffbd2e; }
+        .terminal-dot.green { background: #27c93f; }
+        
+        .terminal-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-left: 0.5rem;
+        }
+        
+        .terminal-body {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 2;
+        }
+        
+        .terminal-prompt {
+            color: var(--turquoise);
+        }
+        
+        .terminal-command {
+            color: var(--text-primary);
+        }
+        
+        .terminal-output {
+            color: var(--text-secondary);
+            padding-left: 1rem;
+        }
+        
+        .terminal-date {
+            color: var(--coral);
+        }
+        
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--text-primary);
+            animation: blink 1s infinite;
+            vertical-align: middle;
+            margin-left: 4px;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        /* Testimonials */
+        .testimonials {
+            background: var(--bg-primary);
+        }
+        
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .testimonial {
+            background: var(--bg-card);
+            padding: 2rem;
+            border: 1px solid var(--border-subtle);
+            position: relative;
+        }
+        
+        .testimonial::before {
+            content: '"';
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 6rem;
+            color: var(--coral);
+            opacity: 0.2;
+            position: absolute;
+            top: -1rem;
+            left: 1rem;
+            line-height: 1;
+        }
+        
+        .testimonial-text {
+            font-size: 1.05rem;
+            line-height: 1.7;
+            margin-bottom: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .testimonial-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--gradient-hero);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.2rem;
+            color: var(--bg-primary);
+        }
+        
+        .testimonial-info h4 {
+            font-size: 1rem;
+            margin-bottom: 0.2rem;
+        }
+        
+        .testimonial-info p {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        /* CTA Section */
+        .cta-section {
+            background: var(--bg-secondary);
+            text-align: center;
+            padding: 6rem 2rem;
+        }
+        
+        .cta-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+        
+        .cta-title .highlight {
+            background: var(--gradient-hero);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .cta-desc {
+            color: var(--text-secondary);
+            max-width: 500px;
+            margin: 0 auto 2rem;
+        }
+        
+        /* Subscribe */
+        .subscribe-form {
+            display: flex;
+            gap: 0.5rem;
+            max-width: 450px;
+            margin: 0 auto;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .subscribe-input {
+            flex: 1;
+            min-width: 250px;
+            padding: 1rem 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .subscribe-input:focus {
+            outline: none;
+            border-color: var(--turquoise);
+        }
+        
+        .subscribe-input::placeholder {
+            color: var(--text-muted);
+        }
+        
+        .subscribe-btn {
+            padding: 1rem 2rem;
+            background: var(--gradient-hero);
+            border: none;
+            color: var(--bg-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .subscribe-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px var(--coral-glow);
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--bg-primary);
+            padding: 3rem 2rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 2rem;
+        }
+        
+        .footer-logo {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.5rem;
+            letter-spacing: 0.15em;
+            background: var(--gradient-hero);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+        
+        .footer-links a {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .footer-copyright {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .trips-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <a href="#" class="nav-logo">◈ STREAMSOULS</a>
+        <ul class="nav-links">
+            <li><a href="#how">Cómo Funciona</a></li>
+            <li><a href="#trips">Viajes</a></li>
+            <li><a href="#testimonials">Historias</a></li>
+            <li><a href="#feed">Feed</a></li>
+        </ul>
+        <a href="#subscribe" class="nav-cta">Únete</a>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-bg"></div>
+        <span class="hero-badge">▹ Viajes Sociales Gamificados</span>
+        <h1 class="hero-title">
+            VIAJA <span class="highlight">SOLO</span><br>
+            VUELVE <span class="highlight">ACOMPAÑADO</span>
+        </h1>
+        <p class="hero-subtitle">
+            Viajes para desconocidos que quieren dejar de serlo. 
+            Destinos que se desbloquean según cuántas almas se apuntan.
+        </p>
+        <div class="hero-ctas">
+            <a href="#trips" class="btn btn-primary">Ver Viajes Activos</a>
+            <a href="#how" class="btn btn-secondary">Cómo Funciona</a>
+        </div>
+        <span class="hero-scroll">↓ SCROLL</span>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works" id="how">
+        <div class="section-header">
+            <span class="section-tag">▹ El Sistema</span>
+            <h2 class="section-title">DOS MODALIDADES, UN OBJETIVO</h2>
+            <p class="section-desc">
+                Conectar personas. Los destinos se adaptan al grupo, no al revés.
+            </p>
+        </div>
+        
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">01</div>
+                <h3 class="step-title">OVERFLOW ≥X Personas</h3>
+                <p class="step-desc">
+                    Cuantos más seamos, más épico. Malta, Ibiza, Mykonos... 
+                    Desbloqueamos yates, clubs enteros, villas privadas.
+                </p>
+            </div>
+            <div class="step">
+                <div class="step-number">02</div>
+                <h3 class="step-title">INTIMATE ≤Y Personas</h3>
+                <p class="step-desc">
+                    Conexiones profundas. Cuba, Islandia, Japón rural... 
+                    Máximo 12 almas para experiencias que no escalan.
+                </p>
+            </div>
+            <div class="step">
+                <div class="step-number">03</div>
+                <h3 class="step-title">Precio Dinámico</h3>
+                <p class="step-desc">
+                    En OVERFLOW, más personas = menor precio para todos. 
+                    El flywheel de la viralidad trabaja para ti.
+                </p>
+            </div>
+            <div class="step">
+                <div class="step-number">04</div>
+                <h3 class="step-title">Conexiones Reales</h3>
+                <p class="step-desc">
+                    Grupo de WhatsApp, ceremonias de cierre, cartas entre almas. 
+                    Llegas solo, vuelves con familia elegida.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Active Trips -->
+    <section class="trips" id="trips">
+        <div class="section-header">
+            <span class="section-tag">▹ Viajes Activos</span>
+            <h2 class="section-title">PRÓXIMOS DESTINOS</h2>
+            <p class="section-desc">
+                Cada viaje tiene un umbral. Alcánzalo y se desbloquea.
+            </p>
+        </div>
+        
+        <div class="trips-grid">
+            <!-- Malta OVERFLOW -->
+            <div class="trip-card overflow">
+                <div class="trip-image" style="background-image: url('https://images.unsplash.com/photo-1514890547357-a9ee288728e0?w=800');">
+                    <span class="trip-badge overflow">OVERFLOW ≥30</span>
+                </div>
+                <div class="trip-content">
+                    <div class="trip-destination">
+                        <span class="trip-flag">🇲🇹</span>
+                        <h3 class="trip-name">MALTA</h3>
+                    </div>
+                    <div class="trip-dates">12-17 SEPTIEMBRE 2026 • 6 DÍAS</div>
+                    
+                    <div class="trip-progress">
+                        <div class="progress-header">
+                            <span class="progress-label">Almas confirmadas</span>
+                            <span class="progress-count">24/30</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill overflow" style="width: 80%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-unlocks">
+                        <div class="unlock active">
+                            <span class="unlock-icon">🔓</span>
+                            <span>Villa completa en Sliema</span>
+                        </div>
+                        <div class="unlock active">
+                            <span class="unlock-icon">🔓</span>
+                            <span>Yate privado + DJ</span>
+                        </div>
+                        <div class="unlock">
+                            <span class="unlock-icon">🔒</span>
+                            <span>Club Havana entero (a 30)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-footer">
+                        <div class="trip-price">€750 <span>/persona</span></div>
+                        <button class="trip-cta">Reservar Plaza</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cuba INTIMATE -->
+            <div class="trip-card intimate">
+                <div class="trip-image" style="background-image: url('https://images.unsplash.com/photo-1500759285222-a95626b934cb?w=800');">
+                    <span class="trip-badge intimate">INTIMATE ≤12</span>
+                </div>
+                <div class="trip-content">
+                    <div class="trip-destination">
+                        <span class="trip-flag">🇨🇺</span>
+                        <h3 class="trip-name">CUBA</h3>
+                    </div>
+                    <div class="trip-dates">2-12 NOVIEMBRE 2026 • 11 DÍAS</div>
+                    
+                    <div class="trip-progress">
+                        <div class="progress-header">
+                            <span class="progress-label">Plazas ocupadas</span>
+                            <span class="progress-count">9/12</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill intimate" style="width: 75%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-unlocks">
+                        <div class="unlock active">
+                            <span class="unlock-icon">⚠️</span>
+                            <span>Solo 3 plazas restantes</span>
+                        </div>
+                        <div class="unlock active">
+                            <span class="unlock-icon">✓</span>
+                            <span>Casas particulares auténticas</span>
+                        </div>
+                        <div class="unlock active">
+                            <span class="unlock-icon">✓</span>
+                            <span>Coches clásicos incluidos</span>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-footer">
+                        <div class="trip-price">€1,450 <span>/persona</span></div>
+                        <button class="trip-cta">Reservar Plaza</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Iceland INTIMATE -->
+            <div class="trip-card intimate">
+                <div class="trip-image" style="background-image: url('https://images.unsplash.com/photo-1504893524553-b855bce32c67?w=800');">
+                    <span class="trip-badge intimate">INTIMATE ≤8</span>
+                </div>
+                <div class="trip-content">
+                    <div class="trip-destination">
+                        <span class="trip-flag">🇮🇸</span>
+                        <h3 class="trip-name">ISLANDIA</h3>
+                    </div>
+                    <div class="trip-dates">ENERO 2027 • 9 DÍAS</div>
+                    
+                    <div class="trip-progress">
+                        <div class="progress-header">
+                            <span class="progress-label">Pre-inscripciones</span>
+                            <span class="progress-count">3/8</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill intimate" style="width: 37%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-unlocks">
+                        <div class="unlock">
+                            <span class="unlock-icon">❄️</span>
+                            <span>Auroras boreales + aguas termales</span>
+                        </div>
+                        <div class="unlock">
+                            <span class="unlock-icon">🚐</span>
+                            <span>Campervan convoy</span>
+                        </div>
+                        <div class="unlock">
+                            <span class="unlock-icon">🔒</span>
+                            <span>Abre inscripciones en Oct</span>
+                        </div>
+                    </div>
+                    
+                    <div class="trip-footer">
+                        <div class="trip-price">€1,890 <span>/persona</span></div>
+                        <button class="trip-cta">Pre-Inscribirse</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Terminal Feed -->
+    <section class="terminal-section" id="feed">
+        <div class="section-header">
+            <span class="section-tag">▹ Live Feed</span>
+            <h2 class="section-title">ÚLTIMOS MOVIMIENTOS</h2>
+        </div>
+        
+        <div class="terminal">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">streamsouls@travel ~ feed</span>
+            </div>
+            <div class="terminal-body">
+                <div>
+                    <span class="terminal-prompt">$</span>
+                    <span class="terminal-command"> streamsouls --status --latest 6</span>
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-05-01]</span> 🇲🇹 Malta alcanza 24/30 almas • Yate privado DESBLOQUEADO
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-04-28]</span> 🇨🇺 Cuba: 3 plazas restantes • Deadline: 1 Octubre
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-04-25]</span> 🇮🇸 Islandia Enero 2027 anunciado • Pre-inscripciones abiertas
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-04-20]</span> 📊 Q1 2026: 2 viajes completados, 58 almas conectadas
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-04-15]</span> 🇬🇷 Mykonos OVERFLOW añadido a cola • Agosto 2026
+                </div>
+                <div class="terminal-output">
+                    <span class="terminal-date">[2026-04-10]</span> ⚙️ Sistema de pricing dinámico actualizado v2.1
+                </div>
+                <div>
+                    <span class="terminal-prompt">$</span>
+                    <span class="terminal-cursor"></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="testimonials" id="testimonials">
+        <div class="section-header">
+            <span class="section-tag">▹ Historias de Almas</span>
+            <h2 class="section-title">LO QUE DICEN LOS QUE VINIERON</h2>
+        </div>
+        
+        <div class="testimonials-grid">
+            <div class="testimonial">
+                <p class="testimonial-text">
+                    Vine porque mi ex me dejó y necesitaba salir de Madrid. 
+                    Me fui con 30 amigos nuevos y un grupo de WhatsApp que sigue activo. 
+                    Malta me curó más que cualquier terapia.
+                </p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">M</div>
+                    <div class="testimonial-info">
+                        <h4>Marina, 29</h4>
+                        <p>Malta Sept 2025</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="testimonial">
+                <p class="testimonial-text">
+                    Trabajo remoto y llevaba 2 años sin conocer gente nueva en persona. 
+                    Cuba fue como resetear mi vida social. 
+                    Las conexiones que haces cuando no hay WiFi son diferentes.
+                </p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">C</div>
+                    <div class="testimonial-info">
+                        <h4>Carlos, 34</h4>
+                        <p>Cuba Nov 2025</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="testimonial">
+                <p class="testimonial-text">
+                    Llegué pensando "qué raro ir de viaje con desconocidos". 
+                    A las 24 horas ya estaba organizando el afterparty. 
+                    El formato funciona. Las barreras se caen muy rápido.
+                </p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">L</div>
+                    <div class="testimonial-info">
+                        <h4>Lucía, 27</h4>
+                        <p>Malta Sept 2025</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="subscribe">
+        <h2 class="cta-title">
+            ¿LISTO PARA <span class="highlight">CONECTAR</span>?
+        </h2>
+        <p class="cta-desc">
+            Recibe alertas de nuevos viajes, acceso early bird, y contenido exclusivo.
+            Sin spam. Solo aventuras.
+        </p>
+        <form class="subscribe-form">
+            <input type="email" class="subscribe-input" placeholder="tu@email.com">
+            <button type="submit" class="subscribe-btn">Unirme</button>
+        </form>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-logo">◈ STREAMSOULS</div>
+            <ul class="footer-links">
+                <li><a href="https://idmmortality.com">IDM//ORTALITY</a></li>
+                <li><a href="https://blog.idmmortality.com">BLOG</a></li>
+                <li><a href="#">INSTAGRAM</a></li>
+                <li><a href="#">FAQ</a></li>
+            </ul>
+            <div class="footer-copyright">
+                © 2026 STREAMSOULS — UN PROYECTO UTOP.IA
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Animate progress bars on scroll
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const fills = entry.target.querySelectorAll('.progress-fill');
+                    fills.forEach(fill => {
+                        const width = fill.style.width;
+                        fill.style.width = '0%';
+                        setTimeout(() => {
+                            fill.style.width = width;
+                        }, 200);
+                    });
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('.trip-card').forEach(card => {
+            observer.observe(card);
+        });
+
+        // Smooth scroll for nav links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+
+        // Terminal typing effect
+        const terminalLines = document.querySelectorAll('.terminal-output');
+        terminalLines.forEach((line, index) => {
+            line.style.opacity = '0';
+            line.style.transform = 'translateX(-10px)';
+            setTimeout(() => {
+                line.style.transition = 'all 0.3s ease';
+                line.style.opacity = '1';
+                line.style.transform = 'translateX(0)';
+            }, 1000 + (index * 150));
+        });
+    </script>
+</body>
+</html>

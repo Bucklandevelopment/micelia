@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "idm-sdk"
+version = "0.1.0"
+description = "Python SDK for integrating microservices with Micelia"
+requires-python = ">=3.11"
+# SDK uses Apache-2.0 (NOT AGPL like the orchestrator) for maximum
+# adoption. The SDK is the integration surface and must not impose
+# copyleft on consumer code. See docs/LICENSING_STRATEGY.md §2.1.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+dependencies = [
+    "httpx>=0.27,<1",
+    "redis[hiredis]>=5.0,<6",
+    "pydantic>=2.0,<3",
+    "pydantic-settings>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "respx>=0.22",
+    "fakeredis>=2.25",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

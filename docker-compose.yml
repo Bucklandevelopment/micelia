@@ -1,0 +1,442 @@
+version: '3.9'
+
+# =============================================================================
+# IDM-CORE: Docker Compose Unificado del IDMMORTALITY System
+# =============================================================================
+#
+# Este compose orquesta todos los servicios del ecosistema UTOP.IA:
+# - idm-core (gateway/orquestador)
+# - biohack-app (salud)
+# - canela-molida (investigación)
+# - ideacursi-tool (educación)
+# - cybertools (seguridad)
+# - codking (code analysis / security)
+# - auto-mat-ion (automation)
+# - Infraestructura (PostgreSQL, Redis, Ollama)
+#
+# Uso:
+#   docker compose up -d                    # Iniciar todo
+#   docker compose up idm-core -d         # Solo gateway
+#   docker compose --profile full up -d     # Con todos los servicios
+#   docker compose logs -f idm-core       # Ver logs
+#
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # INFRAESTRUCTURA BASE
+  # ===========================================================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: idm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: idm
+      POSTGRES_PASSWORD: idm_password
+      POSTGRES_DB: idm_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idm -d idm_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: idm-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: idm-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # GPU support removed for macOS compatibility.
+    # To re-enable GPU for Linux hosts, uncomment the deploy block below:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ===========================================================================
+  # IDM-CORE (Gateway/Orquestador)
+  # ===========================================================================
+
+  idm-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: idm-core
+    restart: unless-stopped
+    # Uses scripts/entrypoint.sh for startup (handles DB migrations, etc.)
+    # Note: postgresql-client dependency is handled in the Dockerfile
+    entrypoint: ["bash", "scripts/entrypoint.sh"]
+    ports:
+      - "8888:8888"
+    environment:
+      - APP_NAME=idm-core
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SYSTEM_API_KEY=idm-dev-key-2024-secure
+
+      # Gateway
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=8888
+
+      # Self-reference URL (for SDK registration responses)
+      - IDM_CORE_URL=http://idm-core:8888
+
+      # Services
+      - HEALTH_SERVICE_URL=http://biohack-app:8080
+      - RESEARCH_SERVICE_URL=http://canela-molida:3690
+      - EDUCATION_SERVICE_URL=http://ideacursi-backend:5050
+      - SECURITY_SERVICE_URL=http://cybertools:8000
+      - CODKING_SERVICE_URL=http://codking:8000
+
+      # Databases
+      - DATABASE_URL=postgresql+asyncpg://idm:idm_password@postgres:5432/idm_core
+      - REDIS_URL=redis://redis:6379/0
+
+      # AI
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CODKING_ENABLED=true
+
+      # Feature flags for services not in this compose
+      - OSASCRIPT_ENABLED=false       # Not available in Linux containers
+      - OLLAMA_CODE_ENABLED=false      # Service not in compose
+      - IMPERIO_LAB_ENABLED=false      # Service not in compose
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # idm-core Dashboard (Next.js 14)
+  idm-dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: idm-dashboard
+    profiles: ["full", "dashboard"]
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - IDM_CORE_API_URL=http://idm-core:8888
+      - NEXT_PUBLIC_IDM_CORE_URL=http://localhost:8888
+    depends_on:
+      idm-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # SERVICIOS DE DOMINIO (Profiles opcionales)
+  # ===========================================================================
+
+  # biohack-app (Salud) - Internal port 8080
+  biohack-app:
+    build:
+      context: ../biohack-app/backend
+      dockerfile: Dockerfile
+    container_name: idm-biohack
+    profiles: ["full", "health"]
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - IDM_CORE_URL=http://idm-core:8888
+      - IDM_CORE_API_KEY=idm-dev-key-2024-secure
+      - VITAL_ENABLED=true
+      - VITAL_REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://idm:idm_password@postgres:5432/biohack
+      - REDIS_URL=redis://redis:6379/1
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/service-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # canela-molida (Investigación)
+  canela-molida:
+    build:
+      context: ../canela-molida
+      dockerfile: Dockerfile
+    container_name: idm-research
+    profiles: ["full", "research"]
+    restart: unless-stopped
+    ports:
+      - "3690:3690"
+    environment:
+      - IDM_CORE_URL=http://idm-core:8888
+      - IDM_API_KEY=idm-dev-key-2024-secure
+      - VITAL_ENABLED=true
+      - VITAL_REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LANCEDB_URI=/app/data/vectors
+    volumes:
+      - canela_data:/app/data
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3690/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ideacursi-tool Backend (Educación)
+  ideacursi-backend:
+    build:
+      context: ../ideacursi-tool/backend
+      dockerfile: Dockerfile
+    container_name: idm-education
+    profiles: ["full", "education"]
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - BACKEND_PORT=5050
+      - IDM_CORE_URL=http://idm-core:8888
+      - IDM_CORE_API_KEY=idm-dev-key-2024-secure
+      - VITAL_ENABLED=true
+      - VITAL_REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://idm:idm_password@postgres:5432/ideacursi
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=deepseek-coder-v2:16b
+      # GitHub OAuth (placeholder - set real values for auth)
+      - GITHUB_CLIENT_ID=placeholder-set-real-value
+      - GITHUB_CLIENT_SECRET=placeholder-set-real-value
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ideacursi-tool Frontend
+  ideacursi-frontend:
+    build:
+      context: ../ideacursi-tool/frontend
+      dockerfile: Dockerfile
+    container_name: idm-education-ui
+    profiles: ["full", "education"]
+    restart: unless-stopped
+    ports:
+      - "6060:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://ideacursi-backend:5050
+    depends_on:
+      ideacursi-backend:
+        condition: service_healthy
+
+  # cybertools (Seguridad)
+  cybertools:
+    build:
+      context: ../cybertools
+      dockerfile: Dockerfile
+    container_name: idm-security
+    profiles: ["full", "security"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - IDM_CORE_URL=http://idm-core:8888
+      - IDM_API_KEY=idm-dev-key-2024-secure
+      - VITAL_ENABLED=true
+      - VITAL_REDIS_URL=redis://redis:6379/0
+      - CODKING_MODEL_PATH=/app/models/codking
+      - CODKING_DEVICE=cpu
+    volumes:
+      - cybertools_models:/app/models
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # GPU support removed for macOS compatibility.
+    # To re-enable GPU for Linux hosts, uncomment the deploy block below
+    # and change CODKING_DEVICE to "cuda":
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # codking (Code Analysis / Security)
+  codking:
+    build:
+      context: ../codking
+      dockerfile: Dockerfile
+    container_name: idm-codking
+    profiles: ["full", "security"]
+    restart: unless-stopped
+    ports:
+      - "8090:8000"  # Use 8090 externally to avoid conflict with cybertools on 8000
+    environment:
+      IDM_CORE_URL: http://idm-core:8888
+      IDM_API_KEY: idm-dev-key-2024-secure
+      VITAL_ENABLED: "true"
+      VITAL_REDIS_URL: redis://redis:6379/0
+      VITAL_SERVICE_PORT: "8000"
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # auto-mat-ion (Automation)
+  auto-mat-ion:
+    build:
+      context: ../auto-mat-ion
+      dockerfile: Dockerfile
+    container_name: idm-automation
+    profiles: ["full", "automation"]
+    restart: unless-stopped
+    ports:
+      - "3100:9090"  # App listens on 9090 (config/index.ts PORT default)
+    environment:
+      IDM_CORE_URL: http://idm-core:8888
+      IDM_CORE_API_KEY: idm-dev-key-2024-secure
+      VITAL_CORE_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+      NODE_ENV: production
+      PORT: "9090"
+    depends_on:
+      idm-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # MONITOREO
+  # ===========================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: idm-prometheus
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: idm-grafana
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+
+volumes:
+  postgres_data:
+    name: idm-postgres-data
+  redis_data:
+    name: idm-redis-data
+  ollama_data:
+    name: idm-ollama-data
+  canela_data:
+    name: idm-canela-data
+  cybertools_models:
+    name: idm-cybertools-models
+  prometheus_data:
+    name: idm-prometheus-data
+  grafana_data:
+    name: idm-grafana-data
+  codking_models:
+    name: idm-codking-models
+  automation_data:
+    name: idm-automation-data
+
+# =============================================================================
+# REDES
+# =============================================================================
+
+networks:
+  default:
+    name: idm-network
+    driver: bridge

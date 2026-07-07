@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MICELIA — AI Orchestration for the UTOP.IA Ecosystem</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg-primary: #050810;
+    --bg-secondary: #0a0e17;
+    --accent-cyan: #00f0ff;
+    --accent-green: #00ff88;
+    --accent-blue: #4d7cff;
+    --accent-purple: #a855f7;
+    --accent-orange: #ff8c00;
+    --text-primary: #e8edf5;
+    --text-secondary: #8892a4;
+    --text-muted: #4a5568;
+    --border: rgba(0, 240, 255, 0.1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+
+  /* ─── Canvas Backgrounds ─── */
+  #bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+  /* ─── Loader ─── */
+  .loader {
+    position: fixed; inset: 0;
+    z-index: 9999;
+    background: var(--bg-primary);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 2rem;
+    transition: opacity 0.8s ease, visibility 0.8s ease;
+  }
+
+  .loader.hidden { opacity: 0; visibility: hidden; }
+
+  .loader-logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: 8px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: glow-text 2s ease-in-out infinite;
+  }
+
+  .loader-bar {
+    width: 200px; height: 2px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .loader-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+    border-radius: 2px;
+    animation: loader-progress 2s ease-in-out forwards;
+  }
+
+  .loader-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 4px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  /* ─── Navigation ─── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    backdrop-filter: blur(20px);
+    background: rgba(5, 8, 16, 0.7);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    transform: translateY(-100%);
+    animation: navSlideIn 0.6s ease 2.5s forwards;
+  }
+  nav.scrolled { background: rgba(5, 8, 16, 0.95); box-shadow: 0 4px 30px rgba(0,0,0,0.5); }
+  .nav-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 70px; }
+
+  .nav-logo {
+    font-family: 'Orbitron', monospace; font-weight: 900; font-size: 1.2rem; letter-spacing: 4px;
+    display: flex; align-items: center; gap: 0.75rem;
+    text-decoration: none; color: var(--text-primary);
+  }
+
+  .nav-logo .logo-symbol {
+    width: 36px; height: 36px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .logo-ring {
+    position: absolute; inset: 0;
+    border: 2px solid var(--accent-cyan);
+    border-radius: 50%;
+    animation: rotate-ring 8s linear infinite;
+  }
+
+  .logo-ring::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: 50%;
+    transform: translateX(-50%);
+    width: 6px; height: 6px;
+    background: var(--accent-green);
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(0,255,136,0.5);
+  }
+
+  .logo-core {
+    width: 8px; height: 8px;
+    background: var(--accent-cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(0,240,255,0.5);
+    animation: core-pulse 2s ease-in-out infinite;
+  }
+
+  .nav-links { display: flex; align-items: center; gap: 0.3rem; }
+  .nav-links a { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary); text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; transition: all 0.3s ease; }
+  .nav-links a:hover { color: var(--accent-cyan); background: rgba(0,240,255,0.05); }
+  .nav-links a.active { color: var(--accent-cyan); background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.2); }
+
+  /* ─── Hero ─── */
+  .hero {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(0,240,255,0.03) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .hero-content {
+    max-width: 1000px;
+    opacity: 0;
+    animation: heroReveal 1.2s ease 2.2s forwards;
+  }
+
+  .hero-pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: var(--accent-green);
+    margin-bottom: 2rem;
+    position: relative;
+    display: inline-block;
+  }
+
+  .hero-pre::before, .hero-pre::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 40px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-green));
+  }
+
+  .hero-pre::before { right: calc(100% + 16px); }
+  .hero-pre::after { left: calc(100% + 16px); background: linear-gradient(90deg, var(--accent-green), transparent); }
+
+  .hero h1 {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+  }
+
+  .hero-main-text {
+    font-size: clamp(3.5rem, 8vw, 7rem);
+    display: block;
+    letter-spacing: 6px;
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-green) 40%, var(--accent-purple) 80%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 200% 200%;
+    animation: gradient-shift 6s ease infinite;
+    filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.15));
+  }
+
+  .hero-sub-text {
+    display: block;
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(1rem, 2.5vw, 1.8rem);
+    font-weight: 400;
+    letter-spacing: 12px;
+    color: var(--text-secondary);
+    margin-top: 1rem;
+  }
+
+  .hero-tagline {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    max-width: 700px;
+    margin: 2.5rem auto 3rem;
+  }
+
+  .hero-tagline strong {
+    color: var(--accent-cyan);
+    font-weight: 500;
+  }
+
+  /* ─── Portal Cards ─── */
+  .portals {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .portal-card {
+    background: rgba(13, 19, 33, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .portal-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    padding: 1px;
+    background: linear-gradient(135deg, transparent 40%, var(--accent-cyan) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+
+  .portal-card:hover::before { opacity: 1; }
+
+  .portal-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+
+  .portal-card.blog:hover { box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(0,240,255,0.1); }
+  .portal-card.lab:hover { box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(0,255,136,0.1); }
+  .portal-card.playground:hover { box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(168,85,247,0.1); }
+
+  .portal-icon {
+    width: 64px; height: 64px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem;
+    margin: 0 auto 1.5rem;
+    transition: transform 0.4s ease;
+  }
+
+  .portal-card:hover .portal-icon { transform: scale(1.1); }
+
+  .portal-card.blog .portal-icon { background: rgba(0,240,255,0.1); color: var(--accent-cyan); }
+  .portal-card.lab .portal-icon { background: rgba(0,255,136,0.1); color: var(--accent-green); }
+  .portal-card.playground .portal-icon { background: rgba(168,85,247,0.1); color: var(--accent-purple); }
+
+  .portal-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 0.75rem;
+  }
+
+  .portal-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+
+  .portal-enter {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+  }
+
+  .portal-card.blog .portal-enter { color: var(--accent-cyan); }
+  .portal-card.lab .portal-enter { color: var(--accent-green); }
+  .portal-card.playground .portal-enter { color: var(--accent-purple); }
+
+  .portal-card:hover .portal-enter { letter-spacing: 5px; }
+
+  /* ─── Manifesto Section ─── */
+  .manifesto {
+    position: relative; z-index: 1;
+    padding: 8rem 2rem;
+    text-align: center;
+  }
+
+  .manifesto-content {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .manifesto-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--accent-green);
+    margin-bottom: 2rem;
+  }
+
+  .manifesto-text {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+    font-weight: 400;
+    line-height: 2;
+    color: var(--text-secondary);
+  }
+
+  .manifesto-text em {
+    font-style: normal;
+    color: var(--accent-cyan);
+  }
+
+  /* ─── Status Section ─── */
+  .status-section {
+    position: relative; z-index: 1;
+    padding: 4rem 2rem 8rem;
+  }
+
+  .status-grid {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+
+  .status-item {
+    text-align: center;
+    padding: 2rem 1rem;
+    background: rgba(13, 19, 33, 0.4);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    transition: all 0.3s ease;
+  }
+
+  .status-item:hover {
+    border-color: rgba(0,240,255,0.2);
+    background: rgba(13, 19, 33, 0.7);
+  }
+
+  .status-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.8rem;
+    font-weight: 900;
+    margin-bottom: 0.5rem;
+  }
+
+  .status-value.cyan { color: var(--accent-cyan); }
+  .status-value.green { color: var(--accent-green); }
+  .status-value.purple { color: var(--accent-purple); }
+  .status-value.orange { color: var(--accent-orange); }
+
+  .status-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 3px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+    animation: status-blink 2s ease-in-out infinite;
+  }
+
+  .status-dot.live { background: var(--accent-green); box-shadow: 0 0 8px rgba(0,255,136,0.5); }
+
+  /* ─── Footer ─── */
+  footer {
+    position: relative; z-index: 1;
+    border-top: 1px solid var(--border);
+    padding: 3rem 2rem;
+    text-align: center;
+  }
+  .footer-nav { display: flex; justify-content: center; gap: 2rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .footer-nav a { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); text-decoration: none; transition: color 0.3s ease; }
+  .footer-nav a:hover { color: var(--accent-cyan); }
+  .footer-brand { font-family: 'Orbitron', monospace; font-size: 0.7rem; color: var(--text-muted); letter-spacing: 4px; margin-bottom: 0.5rem; }
+  .footer-copy { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; color: var(--text-muted); letter-spacing: 2px; }
+
+  /* ─── Animations ─── */
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes glow-text { 0%, 100% { filter: drop-shadow(0 0 10px rgba(0,240,255,0.3)); } 50% { filter: drop-shadow(0 0 20px rgba(0,240,255,0.5)); } }
+  @keyframes loader-progress { from { width: 0; } to { width: 100%; } }
+  @keyframes navSlideIn { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  @keyframes heroReveal { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  @keyframes rotate-ring { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes core-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.7; } }
+  @keyframes status-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @keyframes scroll-dot { 0%, 100% { opacity: 0; transform: translateX(-50%) translateY(0); } 50% { opacity: 1; transform: translateX(-50%) translateY(8px); } }
+
+  .scroll-indicator { position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; opacity: 0; animation: fadeInUp 0.8s ease 3s forwards; }
+  .scroll-indicator .mouse { width: 24px; height: 38px; border: 2px solid var(--text-muted); border-radius: 12px; position: relative; }
+  .scroll-indicator .mouse::after { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 3px; height: 8px; background: var(--accent-cyan); border-radius: 2px; animation: scroll-dot 2s ease-in-out infinite; }
+  .scroll-indicator span { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 3px; color: var(--text-muted); text-transform: uppercase; }
+
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    .portals { grid-template-columns: 1fr; max-width: 400px; }
+    .status-grid { grid-template-columns: repeat(2, 1fr); }
+    .hero-main-text { letter-spacing: 2px; }
+    .hero-sub-text { letter-spacing: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div class="loader" id="loader">
+  <div class="loader-logo">MICELIA</div>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-text">Booting Orchestration Fabric</div>
+</div>
+
+<canvas id="bg-canvas"></canvas>
+
+<!-- Navigation -->
+<nav id="mainNav">
+  <div class="nav-inner">
+    <a href="https://idmmortality.com" class="nav-logo">
+      <div class="logo-symbol">
+        <div class="logo-ring"></div>
+        <div class="logo-core"></div>
+      </div>
+      MICELIA
+    </a>
+    <div class="nav-links">
+      <a href="https://idmmortality.com" class="active">HOME</a>
+      <a href="https://blog.idmmortality.com">BLOG</a>
+      <a href="https://lab.idmmortality.com">LAB</a>
+      <a href="https://playground.idmmortality.com">PLAYGROUND</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-pre">AI ORCHESTRATION FOR UTOP.IA</div>
+    <h1>
+      <span class="hero-main-text">MICELIA</span>
+      <span class="hero-sub-text">GATEWAY • EVENTS • AGENTS</span>
+    </h1>
+    <p class="hero-tagline">
+      Micelia is the orchestration layer behind the UTOP.IA ecosystem: a unified gateway,
+      event-driven memory, prompt operating system, and control panel for long-running work across
+      <strong>health, research, education, and security</strong>.
+    </p>
+
+    <div class="portals">
+      <a href="https://blog.idmmortality.com" class="portal-card blog">
+        <div class="portal-icon">&#x270D;</div>
+        <div class="portal-title">BLOG</div>
+        <div class="portal-desc">Release notes, build logs, and operating notes from the real Micelia project.</div>
+        <div class="portal-enter">ENTER &#x2192;</div>
+      </a>
+      <a href="https://lab.idmmortality.com" class="portal-card lab">
+        <div class="portal-icon">&#x2697;</div>
+        <div class="portal-title">LAB</div>
+        <div class="portal-desc">A guided map of the core modules: gateway, prompts, agents, monitor, calendar, and energy routing.</div>
+        <div class="portal-enter">ENTER &#x2192;</div>
+      </a>
+      <a href="https://playground.idmmortality.com" class="portal-card playground">
+        <div class="portal-icon">&#x1F3AE;</div>
+        <div class="portal-title">PLAYGROUND</div>
+        <div class="portal-desc">Concrete workflows and live operating patterns for running the system day after day.</div>
+        <div class="portal-enter">ENTER &#x2192;</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="scroll-indicator"><div class="mouse"></div><span>Explore</span></div>
+</section>
+
+<!-- Manifesto -->
+<section class="manifesto">
+  <div class="manifesto-content">
+    <div class="manifesto-tag">&#x25C8; OUR MANIFESTO &#x25C8;</div>
+    <p class="manifesto-text">
+      We believe software should stay <em>useful while you live inside it</em>.<br>
+      That prompts, events, and schedules should become one operating loop.<br>
+      That a gateway is stronger when it remembers what happened before.<br>
+      That energy, timing, and context should shape how AI work gets executed.<br>
+      This is <em>MICELIA</em>.
+    </p>
+  </div>
+</section>
+
+<!-- Status Dashboard -->
+<section class="status-section">
+  <div class="status-grid">
+    <div class="status-item">
+      <div class="status-value cyan"><span class="status-dot live"></span>LIVE</div>
+      <div class="status-label">ORCHESTRATION STATUS</div>
+    </div>
+    <div class="status-item">
+      <div class="status-value green">4</div>
+      <div class="status-label">ECOSYSTEM PILLARS</div>
+    </div>
+    <div class="status-item">
+      <div class="status-value purple">7</div>
+      <div class="status-label">PANEL MODULES</div>
+    </div>
+    <div class="status-item">
+      <div class="status-value orange">1</div>
+      <div class="status-label">UNIFIED GATEWAY</div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-nav">
+    <a href="https://idmmortality.com">HOME</a>
+    <a href="https://blog.idmmortality.com">BLOG</a>
+    <a href="https://lab.idmmortality.com">LAB</a>
+    <a href="https://playground.idmmortality.com">PLAYGROUND</a>
+  </div>
+  <div class="footer-brand">MICELIA</div>
+  <div class="footer-copy">&copy; 2026 &mdash; AI ORCHESTRATION FOR THE UTOP.IA ECOSYSTEM</div>
+</footer>
+
+<script>
+// ─── Loader dismiss ───
+setTimeout(() => document.getElementById('loader').classList.add('hidden'), 2200);
+
+// ─── Nebula Particle System ───
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+let mouseX = W / 2, mouseY = H / 2;
+document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+
+class NebulaParticle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.size = Math.random() * 2.5 + 0.3;
+    this.baseSpeedX = (Math.random() - 0.5) * 0.2;
+    this.baseSpeedY = (Math.random() - 0.5) * 0.2;
+    this.opacity = Math.random() * 0.4 + 0.1;
+    this.pulseSpeed = Math.random() * 0.02 + 0.005;
+    this.pulseOffset = Math.random() * Math.PI * 2;
+    const roll = Math.random();
+    this.color = roll > 0.7 ? '0, 255, 136' : roll > 0.4 ? '0, 240, 255' : '168, 85, 247';
+  }
+  update(t) {
+    const dx = mouseX - this.x;
+    const dy = mouseY - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const influence = dist < 200 ? (1 - dist / 200) * 0.02 : 0;
+
+    this.x += this.baseSpeedX + dx * influence;
+    this.y += this.baseSpeedY + dy * influence;
+    this.currentOpacity = this.opacity * (0.7 + Math.sin(t * this.pulseSpeed + this.pulseOffset) * 0.3);
+
+    if (this.x < -10 || this.x > W + 10 || this.y < -10 || this.y > H + 10) this.reset();
+  }
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${this.color}, ${this.currentOpacity})`;
+    ctx.fill();
+
+    if (this.size > 1.5) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${this.color}, ${this.currentOpacity * 0.1})`;
+      ctx.fill();
+    }
+  }
+}
+
+const particles = [];
+for (let i = 0; i < 120; i++) particles.push(new NebulaParticle());
+
+let time = 0;
+function animate() {
+  ctx.fillStyle = 'rgba(5, 8, 16, 0.08)';
+  ctx.fillRect(0, 0, W, H);
+
+  time++;
+  particles.forEach(p => { p.update(time); p.draw(); });
+
+  // Draw subtle connections
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 100) {
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = `rgba(0, 240, 255, ${0.04 * (1 - dist / 100)})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+// ─── Nav scroll ───
+const nav = document.getElementById('mainNav');
+window.addEventListener('scroll', () => { nav.classList.toggle('scrolled', window.scrollY > 50); });
+
+// ─── Scroll reveal ───
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.style.opacity = '1';
+      entry.target.style.transform = 'translateY(0)';
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.manifesto-content, .status-item').forEach(el => {
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(30px)';
+  el.style.transition = 'all 0.8s ease';
+  observer.observe(el);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+Micelia — Cooperative Computational Sovereignty
+Copyright (C) 2026 Asociación Micelia para la Soberanía Computacional
+Cooperativa (in formation) and contributors.
+
+This product includes software developed by the Micelia contributors.
+
+============================================================================
+COPYRIGHT HOLDER DURING "IN FORMATION" PERIOD
+============================================================================
+
+The Asociación Micelia para la Soberanía Computacional Cooperativa is in
+the process of formal constitution under Spanish associative law (expected
+completion: 2026-Q3 to 2026-Q4).
+
+Until the Asociación is formally registered:
+
+- Copyright in contributions accepted under `docs/CLA.md` is held by the
+  individual contributors, with the operational license granted to the
+  Asociación (in formation) as Steward.
+- The interim copyright holder for project-administrative purposes (logo,
+  trademark application, repository administration) is the founder and
+  Nodo 1: Jessicache, acting on behalf of the future Asociación.
+- Upon formal constitution of the Asociación, all administrative rights
+  held by the founder transfer to the Asociación by a public deed of
+  transfer that will be archived at `docs/legal/transfer-deed.md` and
+  signed by the founder.
+- If the Asociación fails to be formally constituted by 2027-06-30, the
+  CLA `docs/CLA.md` §5 reversion mechanism activates: contributors may
+  reclaim their individual licenses by a public vote per §4 procedure.
+
+This disclosure exists to (a) avoid uncertainty for downstream users about
+who holds enforceable rights today, and (b) document the planned transfer
+chain before it happens.
+
+============================================================================
+LICENSING SUMMARY (defense-in-depth, see docs/LICENSING_STRATEGY.md)
+============================================================================
+
+| Component                          | License                  |
+|------------------------------------|--------------------------|
+| Orchestrator (app/, frontend/)     | AGPL-3.0-or-later        |
+| New modules (post-cutoff)          | FSL-1.1-ALv2             |
+| Python SDK (sdk/python/)           | Apache-2.0               |
+| Federation protocol spec (future)  | Apache-2.0               |
+| Documentation (docs/)              | CC-BY-SA-4.0             |
+| Synthetic test data                | CC0-1.0                  |
+| "Micelia" trademark                | Registered (EUIPO/USPTO) |
+
+============================================================================
+KEY UPSTREAM DEPENDENCIES (representative, not exhaustive)
+============================================================================
+
+| Project        | License        | Use in Micelia                |
+|----------------|----------------|-------------------------------|
+| FastAPI        | MIT            | Web framework (app/)          |
+| Uvicorn        | BSD-3-Clause   | ASGI server                   |
+| SQLAlchemy     | MIT            | ORM (event store, prompts)    |
+| asyncpg        | Apache-2.0     | PostgreSQL driver             |
+| Pydantic       | MIT            | Validation, settings          |
+| Loguru         | MIT            | Logging                       |
+| Click + Rich   | BSD-3 / MIT    | CLI (micelia command)         |
+| httpx          | BSD-3-Clause   | HTTP client (gateway)         |
+| respx          | BSD-3-Clause   | HTTP mock (tests)             |
+| python-jose    | MIT            | JWT                           |
+| passlib        | BSD            | Password hashing              |
+
+All upstream dependencies are permissive (MIT/BSD/Apache 2.0) and
+compatible with AGPL-3.0-or-later as combined work.
+
+============================================================================
+TRADEMARK NOTICE
+============================================================================
+
+"Micelia" and the Micelia logo are trademarks of the Asociación Micelia
+para la Soberanía Computacional Cooperativa (in formation). See
+docs/TRADEMARK_POLICY.md for permitted use.
+
+Forks of this software are encouraged BUT may not be distributed under
+the name "Micelia" or any confusingly similar name. The code remains
+free; the trademark protects users from extractive forks.
+
+============================================================================
+ETHICAL USE
+============================================================================
+
+While not a license restriction, this project asks users to read
+docs/ETHICAL_USE.md regarding intended use cases. This is a declaration
+of values, not a legal obligation.
+
+============================================================================
+AI SOVEREIGNTY
+============================================================================
+
+Per docs/AI_SOVEREIGNTY_POLICY.md, the Micelia orchestrator MUST function
+with open-weight models (Llama, Mistral, Qwen, etc.). Proprietary models
+(GPT, Claude, Gemini) are optional and must degrade gracefully. Modules
+exclusively dependent on proprietary providers will not be accepted into
+the core.

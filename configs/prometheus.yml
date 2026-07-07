@@ -1,0 +1,154 @@
+# =============================================================================
+# Micelia: Configuración de Prometheus
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'micelia'
+
+# Reglas de alertas
+rule_files:
+  # - "alerts/*.yml"
+
+# Configuración de scraping
+scrape_configs:
+  # ==========================================================================
+  # Prometheus self-monitoring
+  # ==========================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ==========================================================================
+  # Micelia (Gateway/Orquestador)
+  # ==========================================================================
+  - job_name: 'idm-core'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-core:8888']
+        labels:
+          service: 'gateway'
+          tier: 'orchestrator'
+
+  # ==========================================================================
+  # MICROSERVICIOS DE DOMINIO
+  # ==========================================================================
+
+  # biohack-app (Salud)
+  - job_name: 'biohack-app'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-biohack:8080']
+        labels:
+          service: 'health'
+          tier: 'domain'
+          domain: 'health'
+
+  # canela-molida (Investigación)
+  - job_name: 'canela-molida'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-research:3690']
+        labels:
+          service: 'research'
+          tier: 'domain'
+          domain: 'research'
+
+  # ideacursi-tool (Educación)
+  - job_name: 'ideacursi-tool'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-education:5050']
+        labels:
+          service: 'education'
+          tier: 'domain'
+          domain: 'education'
+
+  # cybertools (Seguridad)
+  - job_name: 'cybertools'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-security:8000']
+        labels:
+          service: 'security'
+          tier: 'domain'
+          domain: 'security'
+
+  # codking (Análisis de Código)
+  - job_name: 'codking'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-codking:8000']
+        labels:
+          service: 'codking'
+          tier: 'domain'
+          domain: 'code-analysis'
+
+  # auto-mat-ion (Automatización)
+  - job_name: 'auto-mat-ion'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['idm-automation:3000']
+        labels:
+          service: 'automation'
+          tier: 'domain'
+          domain: 'automation'
+
+  # ==========================================================================
+  # INFRAESTRUCTURA
+  # ==========================================================================
+
+  # PostgreSQL (via postgres_exporter si está configurado)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:9187']
+        labels:
+          service: 'database'
+          tier: 'infrastructure'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:9121']
+        labels:
+          service: 'cache'
+          tier: 'infrastructure'
+
+  # ==========================================================================
+  # IA / ML
+  # ==========================================================================
+
+  # Ollama
+  - job_name: 'ollama'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['ollama:11434']
+        labels:
+          service: 'llm'
+          tier: 'ai'
+
+  # ==========================================================================
+  # NODE EXPORTER (Métricas del sistema)
+  # ==========================================================================
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          tier: 'system'
+
+# =============================================================================
+# ALERTMANAGER (Opcional)
+# =============================================================================
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# =============================================================================
+# REMOTE WRITE (Opcional - para almacenamiento a largo plazo)
+# =============================================================================
+# remote_write:
+#   - url: "http://mimir:9009/api/v1/push"

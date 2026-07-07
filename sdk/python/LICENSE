@@ -1,0 +1,43 @@
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/LICENSE-2.0
+
+SPDX-License-Identifier: Apache-2.0
+
+Copyright (C) 2026 Asociación Micelia para la Soberanía Computacional
+Cooperativa (in formation) and contributors.
+
+The full text of the Apache License v2.0 is the canonical text available
+at:
+
+    http://www.apache.org/licenses/LICENSE-2.0.txt
+
+To populate this file with the verbatim Apache 2.0 text, run from the
+repo root:
+
+    bash scripts/fetch-licenses.sh --include-sdk
+
+Until then, this placeholder serves as notice that the Micelia Python
+SDK (the `idm_sdk` package and the future `micelia_sdk` alias) is
+licensed under Apache License 2.0, distinct from the AGPL-3.0-or-later
+license that covers the Micelia orchestrator.
+
+------------------------------------------------------------------------
+
+WHY APACHE 2.0 FOR THE SDK
+
+The Python SDK is the integration surface for cooperative nodes and for
+third-party services that consume Micelia events or push events into the
+Micelia event store. Maximum adoption requires a permissive license that
+does NOT impose copyleft on the consumer's codebase.
+
+Apache 2.0 is chosen over MIT for its explicit patent grant.
+
+The SDK is intentionally kept thin: it does not depend on the
+orchestrator's source code, only on the published HTTP API. This means a
+proprietary service can use the SDK to talk to Micelia without violating
+AGPLv3 — exactly as intended.
+
+For the full multi-layer licensing strategy, see:
+
+    docs/LICENSING_STRATEGY.md

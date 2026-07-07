@@ -1,0 +1,64 @@
+# === Environment / Secrets ===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+# OAuth tokens & credential dumps (e.g. data/google_token.json)
+*token*.json
+*credential*.json
+secrets/
+*.pid
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# === Virtual Environment ===
+.venv/
+venv/
+env/
+
+# === Node / Frontend ===
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# === Logs ===
+logs/
+*.log
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# === Data (runtime, not versionable) ===
+data/vectors/
+# Frangels encrypted cloud-provider credential store
+data/frangels/
+data/credentials/
+*.db
+*.sqlite3
+
+# === Docker ===
+docker-compose.override.yml
+
+# === Claude / AI tools ===
+.claude/
+
+# Deploy credentials
+.env.deploy

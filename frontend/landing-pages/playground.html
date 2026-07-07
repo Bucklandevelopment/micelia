@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MICELIA // PLAYGROUND — Workflows, Demos &amp; Live Operations</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #0d1321;
+    --bg-card: rgba(13, 19, 33, 0.85);
+    --accent-cyan: #00f0ff;
+    --accent-green: #00ff88;
+    --accent-blue: #4d7cff;
+    --accent-purple: #a855f7;
+    --accent-red: #ff4444;
+    --accent-orange: #ff8c00;
+    --accent-yellow: #fbbf24;
+    --text-primary: #e8edf5;
+    --text-secondary: #8892a4;
+    --text-muted: #4a5568;
+    --border: rgba(0, 240, 255, 0.1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow-x: hidden; min-height: 100vh; }
+  canvas#bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+  /* ─── Nav ─── */
+  nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; backdrop-filter: blur(20px); background: rgba(10,14,23,0.8); border-bottom: 1px solid var(--border); padding: 0 2rem; transition: all 0.3s ease; }
+  nav.scrolled { background: rgba(10,14,23,0.95); box-shadow: 0 4px 30px rgba(0,0,0,0.3); }
+  .nav-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 70px; }
+  .nav-logo { font-family: 'Orbitron', monospace; font-weight: 900; font-size: 1.1rem; letter-spacing: 3px; display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: var(--text-primary); }
+  .nav-logo .logo-icon { width: 32px; height: 32px; border: 2px solid var(--accent-purple); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--accent-purple); box-shadow: 0 0 20px rgba(168,85,247,0.3); animation: pulse-glow-purple 3s ease-in-out infinite; }
+  .nav-logo .active-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; color: var(--accent-orange); background: rgba(255,140,0,0.1); padding: 2px 8px; border-radius: 3px; border: 1px solid rgba(255,140,0,0.2); letter-spacing: 1px; }
+  .nav-links { display: flex; align-items: center; gap: 0.3rem; }
+  .nav-links a { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary); text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; transition: all 0.3s ease; }
+  .nav-links a:hover { color: var(--accent-cyan); background: rgba(0,240,255,0.05); }
+  .nav-links a.active { color: var(--accent-purple); background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); }
+  .nav-links a.main-link { color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+  .nav-links a.main-link:hover { background: rgba(0,255,136,0.15); }
+
+  /* ─── Hero ─── */
+  .hero { position: relative; z-index: 1; min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
+  .hero-content { max-width: 900px; }
+  .hero-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 4px; text-transform: uppercase; color: var(--accent-purple); margin-bottom: 1.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.3s forwards; }
+  .hero-badge span { background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 6px 16px; border-radius: 20px; }
+  .hero h1 { font-family: 'Orbitron', monospace; font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.5s forwards; }
+  .hero h1 .line1 { display: block; background: linear-gradient(135deg, var(--accent-purple), var(--accent-orange)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero h1 .line2 { display: block; font-size: 0.5em; color: var(--text-secondary); -webkit-text-fill-color: var(--text-secondary); font-weight: 400; letter-spacing: 6px; margin-top: 0.5rem; }
+  .hero-desc { font-size: 1.15rem; color: var(--text-secondary); line-height: 1.8; max-width: 650px; margin: 0 auto 2.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.7s forwards; }
+
+  .hero-cta { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; opacity: 0; animation: fadeInUp 0.8s ease 0.9s forwards; }
+  .btn { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; padding: 14px 32px; border-radius: 8px; text-decoration: none; transition: all 0.4s ease; cursor: pointer; border: none; }
+  .btn-primary { background: linear-gradient(135deg, var(--accent-purple), var(--accent-orange)); color: #fff; box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(168,85,247,0.5); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text-primary); background: transparent; }
+  .btn-ghost:hover { border-color: var(--accent-purple); background: rgba(168,85,247,0.05); }
+
+  .scroll-indicator { position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; opacity: 0; animation: fadeInUp 0.8s ease 1.2s forwards; }
+  .scroll-indicator .mouse { width: 24px; height: 38px; border: 2px solid var(--text-muted); border-radius: 12px; position: relative; }
+  .scroll-indicator .mouse::after { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 3px; height: 8px; background: var(--accent-purple); border-radius: 2px; animation: scroll-dot 2s ease-in-out infinite; }
+  .scroll-indicator span { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 3px; color: var(--text-muted); text-transform: uppercase; }
+
+  /* ─── Section Shared ─── */
+  section { position: relative; z-index: 1; padding: 6rem 2rem; }
+  .section-header { text-align: center; margin-bottom: 4rem; }
+  .section-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 4px; text-transform: uppercase; color: var(--accent-purple); margin-bottom: 1rem; }
+  .section-title { font-family: 'Orbitron', monospace; font-size: clamp(1.5rem, 3vw, 2.5rem); font-weight: 700; margin-bottom: 1rem; }
+  .section-desc { color: var(--text-secondary); max-width: 600px; margin: 0 auto; line-height: 1.7; }
+
+  /* ─── Challenges Grid ─── */
+  .challenges-grid {
+    max-width: 1200px; margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .challenge-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s ease;
+    cursor: pointer;
+    opacity: 0; transform: translateY(30px);
+  }
+
+  .challenge-card.visible { opacity: 1; transform: translateY(0); transition: all 0.6s ease; }
+
+  .challenge-card:hover {
+    border-color: rgba(168, 85, 247, 0.3);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3), 0 0 30px rgba(168,85,247,0.05);
+  }
+
+  .challenge-status {
+    position: absolute;
+    top: 1.5rem; right: 1.5rem;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  .challenge-status.active { background: var(--accent-green); box-shadow: 0 0 10px rgba(0,255,136,0.5); animation: status-pulse 2s ease-in-out infinite; }
+  .challenge-status.upcoming { background: var(--accent-orange); box-shadow: 0 0 10px rgba(255,140,0,0.5); }
+  .challenge-status.completed { background: var(--text-muted); }
+
+  .challenge-diff {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 1rem;
+  }
+
+  .diff-easy { color: var(--accent-green); background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); }
+  .diff-medium { color: var(--accent-orange); background: rgba(255,140,0,0.1); border: 1px solid rgba(255,140,0,0.2); }
+  .diff-hard { color: var(--accent-red); background: rgba(255,68,68,0.1); border: 1px solid rgba(255,68,68,0.2); }
+  .diff-insane { color: var(--accent-purple); background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); }
+
+  .challenge-category {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .challenge-name {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+  }
+
+  .challenge-desc {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+
+  .challenge-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .challenge-points {
+    font-family: 'Orbitron', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--accent-yellow);
+  }
+
+  .challenge-solves {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+  }
+
+  .progress-bar {
+    height: 3px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    margin-top: 1rem;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-orange));
+    transition: width 1s ease;
+  }
+
+  /* ─── Leaderboard ─── */
+  .leaderboard-wrap {
+    max-width: 800px; margin: 0 auto;
+  }
+
+  .leaderboard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .lb-header {
+    display: grid;
+    grid-template-columns: 60px 1fr 120px 120px;
+    padding: 1rem 1.5rem;
+    background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .lb-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 120px 120px;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+    align-items: center;
+    transition: background 0.3s ease;
+  }
+
+  .lb-row:hover { background: rgba(168,85,247,0.03); }
+
+  .lb-rank {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: 1rem;
+  }
+
+  .lb-rank.gold { color: #fbbf24; }
+  .lb-rank.silver { color: #94a3b8; }
+  .lb-rank.bronze { color: #cd7f32; }
+
+  .lb-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .lb-avatar {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+  }
+
+  .lb-username {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  .lb-solved, .lb-points {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    text-align: right;
+  }
+
+  .lb-points { color: var(--accent-yellow); font-weight: 700; }
+
+  /* ─── Live Terminal ─── */
+  .terminal-section { max-width: 800px; margin: 0 auto; }
+  .terminal { background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .terminal-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: rgba(0,0,0,0.3); border-bottom: 1px solid var(--border); }
+  .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .terminal-dot.red { background: #ff5f56; }
+  .terminal-dot.yellow { background: #ffbd2e; }
+  .terminal-dot.green { background: #27c93f; }
+  .terminal-title { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.5rem; letter-spacing: 1px; }
+  .terminal-body { padding: 1.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 2; }
+  .terminal-body .prompt { color: var(--accent-purple); }
+  .terminal-body .cmd { color: var(--text-primary); }
+  .terminal-body .output { color: var(--text-muted); }
+  .terminal-body .success { color: var(--accent-green); }
+  .terminal-body .flag { color: var(--accent-yellow); }
+  .terminal-body .typing-cursor { display: inline-block; width: 8px; height: 16px; background: var(--accent-purple); animation: blink-cursor 1s step-end infinite; vertical-align: text-bottom; }
+
+  /* ─── Footer ─── */
+  footer { position: relative; z-index: 1; border-top: 1px solid var(--border); padding: 3rem 2rem; text-align: center; }
+  .footer-nav { display: flex; justify-content: center; gap: 2rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .footer-nav a { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); text-decoration: none; transition: color 0.3s ease; }
+  .footer-nav a:hover { color: var(--accent-cyan); }
+  .footer-copy { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--text-muted); letter-spacing: 2px; }
+
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-glow-purple { 0%, 100% { box-shadow: 0 0 10px rgba(168,85,247,0.2); } 50% { box-shadow: 0 0 25px rgba(168,85,247,0.5); } }
+  @keyframes scroll-dot { 0%, 100% { opacity: 0; transform: translateX(-50%) translateY(0); } 50% { opacity: 1; transform: translateX(-50%) translateY(8px); } }
+  @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    .challenges-grid { grid-template-columns: 1fr; }
+    .lb-header, .lb-row { grid-template-columns: 40px 1fr 80px 80px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<nav id="mainNav">
+  <div class="nav-inner">
+    <a href="https://idmmortality.com" class="nav-logo">
+      <div class="logo-icon">&#x2261;</div>
+      MICELIA
+      <span class="active-tag">PLAYGROUND</span>
+    </a>
+    <div class="nav-links">
+      <a href="https://idmmortality.com" class="main-link">HOME</a>
+      <a href="https://blog.idmmortality.com">BLOG</a>
+      <a href="https://lab.idmmortality.com">LAB</a>
+      <a href="https://playground.idmmortality.com" class="active">PLAYGROUND</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge"><span>&#x1F3F4; WORKFLOWS, DEMOS &amp; OPERATING MODES &#x1F3F4;</span></div>
+    <h1>
+      <span class="line1">RUN THE<br>SYSTEM</span>
+      <span class="line2">Capture &bull; Prioritize &bull; Execute</span>
+    </h1>
+    <p class="hero-desc">
+      The playground translates Micelia into concrete workflows: capture a prompt,
+      route it through the panel, schedule it, audit it, and keep the system moving.
+    </p>
+    <div class="hero-cta">
+      <a href="#challenges" class="btn btn-primary">BROWSE WORKFLOWS</a>
+      <a href="#leaderboard" class="btn btn-ghost">SEE OPERATING MODES</a>
+    </div>
+  </div>
+  <div class="scroll-indicator"><div class="mouse"></div><span>Scroll</span></div>
+</section>
+
+<!-- Active Challenges -->
+<section id="challenges">
+  <div class="section-header">
+    <div class="section-tag">&#x25B9; ACTIVE WORKFLOWS</div>
+    <h2 class="section-title">Choose Your Loop</h2>
+    <p class="section-desc">Each card is a real operational pattern the platform is designed to support.</p>
+  </div>
+
+  <div class="challenges-grid">
+    <div class="challenge-card" data-delay="0">
+      <div class="challenge-status active"></div>
+      <span class="challenge-diff diff-hard">CORE</span>
+      <div class="challenge-category">PROMPT OPS</div>
+      <div class="challenge-name">Inbox to Queue</div>
+      <div class="challenge-desc">Capture a new idea, classify it, move it through staging, and push it into execution without losing context.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">5 STEPS</span>
+        <span class="challenge-solves">INBOX / STAGING / QUEUE</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+    </div>
+
+    <div class="challenge-card" data-delay="100">
+      <div class="challenge-status active"></div>
+      <span class="challenge-diff diff-insane">HIGH</span>
+      <div class="challenge-category">AGENT WORKFLOW</div>
+      <div class="challenge-name">Plan to Run</div>
+      <div class="challenge-desc">Launch a multi-agent workflow, monitor active steps, and inspect the run history as the system moves from plan to execution.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">CREWS</span>
+        <span class="challenge-solves">RUNS / CHECKPOINTS</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 86%"></div></div>
+    </div>
+
+    <div class="challenge-card" data-delay="200">
+      <div class="challenge-status active"></div>
+      <span class="challenge-diff diff-medium">LIVE</span>
+      <div class="challenge-category">CALENDAR LOOP</div>
+      <div class="challenge-name">Time-Boxed Prompts</div>
+      <div class="challenge-desc">Connect the calendar, create an event-backed task, and let the panel surface what needs attention next.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">SYNC</span>
+        <span class="challenge-solves">EVENTS / SCHEDULES</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 78%"></div></div>
+    </div>
+
+    <div class="challenge-card" data-delay="300">
+      <div class="challenge-status active"></div>
+      <span class="challenge-diff diff-easy">FAST</span>
+      <div class="challenge-category">MISSION CONTROL</div>
+      <div class="challenge-name">Daily System Check</div>
+      <div class="challenge-desc">Use the dashboard to review activity, budget, queue, recent results, service health, and energy status in one pass.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">DASHBOARD</span>
+        <span class="challenge-solves">STATUS / BUDGET / RESULTS</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+    </div>
+
+    <div class="challenge-card" data-delay="400">
+      <div class="challenge-status upcoming"></div>
+      <span class="challenge-diff diff-hard">SMART</span>
+      <div class="challenge-category">ENERGY ROUTING</div>
+      <div class="challenge-name">Local-First Compute</div>
+      <div class="challenge-desc">Evaluate battery, charging state, and runtime recommendations before deciding whether a task should stay local or spill to cloud.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">POWER</span>
+        <span class="challenge-solves">ROLLING OUT</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 56%"></div></div>
+    </div>
+
+    <div class="challenge-card" data-delay="500">
+      <div class="challenge-status active"></div>
+      <span class="challenge-diff diff-medium">TRACE</span>
+      <div class="challenge-category">EVENT MEMORY</div>
+      <div class="challenge-name">Audit the Loop</div>
+      <div class="challenge-desc">Walk through stored events and audit checkpoints to reconstruct how a prompt moved through the system.</div>
+      <div class="challenge-meta">
+        <span class="challenge-points">EVENTS</span>
+        <span class="challenge-solves">TIMELINE / CORRELATION</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 81%"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Leaderboard -->
+<section id="leaderboard">
+  <div class="section-header">
+    <div class="section-tag">&#x25B9; OPERATING MODES</div>
+    <h2 class="section-title">How the System Moves</h2>
+    <p class="section-desc">These are the recurring modes that turn Micelia into a daily-use operating environment.</p>
+  </div>
+
+  <div class="leaderboard-wrap">
+    <div class="leaderboard">
+      <div class="lb-header">
+        <span>MODE</span><span>MODULE</span><span style="text-align:right">INPUTS</span><span style="text-align:right">OUTPUTS</span>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank gold">01</div>
+        <div class="lb-user">
+          <div class="lb-avatar" style="background:rgba(168,85,247,0.2);color:var(--accent-purple);">CP</div>
+          <span class="lb-username">Capture</span>
+        </div>
+        <div class="lb-solved">notes, links</div>
+        <div class="lb-points">prompt inbox</div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank silver">02</div>
+        <div class="lb-user">
+          <div class="lb-avatar" style="background:rgba(0,240,255,0.2);color:var(--accent-cyan);">PR</div>
+          <span class="lb-username">Prioritize</span>
+        </div>
+        <div class="lb-solved">lists, tags</div>
+        <div class="lb-points">staging queue</div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank bronze">03</div>
+        <div class="lb-user">
+          <div class="lb-avatar" style="background:rgba(0,255,136,0.2);color:var(--accent-green);">EX</div>
+          <span class="lb-username">Execute</span>
+        </div>
+        <div class="lb-solved">agents, providers</div>
+        <div class="lb-points">results, events</div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank" style="color:var(--text-muted)">04</div>
+        <div class="lb-user">
+          <div class="lb-avatar" style="background:rgba(255,140,0,0.2);color:var(--accent-orange);">SC</div>
+          <span class="lb-username">Schedule</span>
+        </div>
+        <div class="lb-solved">calendar, time</div>
+        <div class="lb-points">upcoming work</div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank" style="color:var(--text-muted)">05</div>
+        <div class="lb-user">
+          <div class="lb-avatar" style="background:rgba(255,68,68,0.2);color:var(--accent-red);">AU</div>
+          <span class="lb-username">Audit</span>
+        </div>
+        <div class="lb-solved">events, checkpoints</div>
+        <div class="lb-points">traceable loop</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Live Terminal -->
+<section>
+  <div class="section-header">
+    <div class="section-tag">&#x25B9; LIVE ACTIVITY</div>
+    <h2 class="section-title">Operations Feed</h2>
+  </div>
+  <div class="terminal-section">
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <span class="terminal-title">micelia@playground ~ live</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="prompt">$</span> <span class="cmd">vital workflow --live-feed</span></div>
+        <div><span class="output">[14:32:01] <span class="success">QUEUED</span> New prompt captured and routed into staging</span></div>
+        <div><span class="output">[14:28:45] <span class="flag">RUN</span> Agent workflow started with planning and execution steps</span></div>
+        <div><span class="output">[14:25:12] <span class="success">SYNC</span> Calendar event linked to a scheduled prompt</span></div>
+        <div><span class="output">[14:22:33] <span class="success">RESULT</span> Completed run stored output and correlation events</span></div>
+        <div><span class="output">[14:18:07] <span class="flag">CHECK</span> Energy router recommended local execution mode</span></div>
+        <div><span class="prompt">$</span> <span class="typing-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-nav">
+    <a href="https://idmmortality.com">HOME</a>
+    <a href="https://blog.idmmortality.com">BLOG</a>
+    <a href="https://lab.idmmortality.com">LAB</a>
+    <a href="https://playground.idmmortality.com">PLAYGROUND</a>
+  </div>
+  <div class="footer-copy">&copy; 2026 MICELIA &mdash; DAILY WORKFLOWS FOR THE UTOP.IA OPERATING LAYER</div>
+</footer>
+
+<script>
+// ─── Matrix Rain Background ───
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const chars = 'VITALCORE01PROMPTEVENTAGENTQUEUE{}[]<>/\\|!@#$%^&*';
+const fontSize = 12;
+let columns = Math.floor(canvas.width / fontSize);
+let drops = Array(columns).fill(1);
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(10, 14, 23, 0.06)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = fontSize + 'px JetBrains Mono, monospace';
+
+  for (let i = 0; i < drops.length; i++) {
+    const char = chars[Math.floor(Math.random() * chars.length)];
+    const x = i * fontSize;
+    const y = drops[i] * fontSize;
+
+    const brightness = Math.random();
+    if (brightness > 0.95) {
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.4)';
+    } else if (brightness > 0.9) {
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.3)';
+    } else {
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.08)';
+    }
+
+    ctx.fillText(char, x, y);
+
+    if (y > canvas.height && Math.random() > 0.98) drops[i] = 0;
+    drops[i]++;
+  }
+  requestAnimationFrame(drawMatrix);
+}
+drawMatrix();
+
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  columns = Math.floor(canvas.width / fontSize);
+  drops = Array(columns).fill(1);
+});
+
+// ─── Nav scroll ───
+const nav = document.getElementById('mainNav');
+window.addEventListener('scroll', () => { nav.classList.toggle('scrolled', window.scrollY > 50); });
+
+// ─── Card reveal ───
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const delay = entry.target.dataset.delay || 0;
+      setTimeout(() => entry.target.classList.add('visible'), delay);
+    }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.challenge-card').forEach(card => observer.observe(card));
+</script>
+</body>
+</html>

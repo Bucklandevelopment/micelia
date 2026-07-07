@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import "../../../../design-system/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font-family: var(--font-body);
+}
+
+/* Canonical display type: headings use Orbitron platform-wide */
+@layer base {
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.5px;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4B5563;
+}
+
+/* Energy state animations */
+.energy-abundant {
+  @apply text-energy-abundant;
+  animation: pulse 2s infinite;
+}
+
+.energy-normal {
+  @apply text-energy-normal;
+}
+
+.energy-conserving {
+  @apply text-energy-conserving;
+  animation: pulse 1.5s infinite;
+}
+
+.energy-critical {
+  @apply text-energy-critical;
+  animation: pulse 1s infinite;
+}
+
+.energy-survival {
+  @apply text-energy-survival;
+  animation: pulse 0.5s infinite;
+}
+
+/* Glassmorphism effect (canonical) */
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--blur-card));
+  -webkit-backdrop-filter: blur(var(--blur-card));
+  border: 1px solid var(--border);
+}
+
+/* Glow effects */
+.glow-health {
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+}
+
+.glow-education {
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+}
+
+.glow-identity {
+  box-shadow: 0 0 20px rgba(255, 107, 107, 0.3);
+}
+
+.glow-energy {
+  box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+}

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MICELIA // LAB — Modules, Services &amp; Operating Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #0d1321;
+    --bg-card: rgba(13, 19, 33, 0.85);
+    --accent-cyan: #00f0ff;
+    --accent-green: #00ff88;
+    --accent-blue: #4d7cff;
+    --accent-purple: #a855f7;
+    --accent-red: #ff4444;
+    --text-primary: #e8edf5;
+    --text-secondary: #8892a4;
+    --text-muted: #4a5568;
+    --border: rgba(0, 240, 255, 0.1);
+    --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.3);
+    --glow-green: 0 0 20px rgba(0, 255, 136, 0.3);
+    --glow-purple: 0 0 20px rgba(168, 85, 247, 0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  canvas#bg-canvas {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0; pointer-events: none;
+  }
+
+  /* ─── Nav (shared pattern) ─── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    backdrop-filter: blur(20px);
+    background: rgba(10, 14, 23, 0.8);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    transition: all 0.3s ease;
+  }
+  nav.scrolled { background: rgba(10, 14, 23, 0.95); box-shadow: 0 4px 30px rgba(0,0,0,0.3); }
+  .nav-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 70px; }
+  .nav-logo { font-family: 'Orbitron', monospace; font-weight: 900; font-size: 1.1rem; letter-spacing: 3px; display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: var(--text-primary); }
+  .nav-logo .logo-icon { width: 32px; height: 32px; border: 2px solid var(--accent-green); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--accent-green); box-shadow: var(--glow-green); animation: pulse-glow-green 3s ease-in-out infinite; }
+  .nav-logo .active-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 400; color: var(--accent-purple); background: rgba(168,85,247,0.1); padding: 2px 8px; border-radius: 3px; border: 1px solid rgba(168,85,247,0.2); letter-spacing: 1px; }
+  .nav-links { display: flex; align-items: center; gap: 0.3rem; }
+  .nav-links a { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary); text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; transition: all 0.3s ease; }
+  .nav-links a:hover { color: var(--accent-cyan); background: rgba(0,240,255,0.05); }
+  .nav-links a.active { color: var(--accent-green); background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); }
+  .nav-links a.main-link { color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+  .nav-links a.main-link:hover { background: rgba(0,255,136,0.15); box-shadow: var(--glow-green); }
+
+  /* ─── Hero ─── */
+  .hero {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 2rem;
+  }
+  .hero-content { max-width: 900px; }
+  .hero-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 4px; text-transform: uppercase; color: var(--accent-green); margin-bottom: 1.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.3s forwards; }
+  .hero-badge span { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); padding: 6px 16px; border-radius: 20px; }
+  .hero h1 { font-family: 'Orbitron', monospace; font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.5s forwards; }
+  .hero h1 .line1 { display: block; background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero h1 .line2 { display: block; font-size: 0.5em; color: var(--text-secondary); -webkit-text-fill-color: var(--text-secondary); font-weight: 400; letter-spacing: 6px; margin-top: 0.5rem; }
+  .hero-desc { font-size: 1.15rem; color: var(--text-secondary); line-height: 1.8; max-width: 650px; margin: 0 auto 2.5rem; opacity: 0; animation: fadeInUp 0.8s ease 0.7s forwards; }
+  .hero-stats { display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap; opacity: 0; animation: fadeInUp 0.8s ease 0.9s forwards; }
+  .stat { text-align: center; }
+  .stat .stat-num { font-family: 'Orbitron', monospace; font-size: 2.5rem; font-weight: 900; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .stat-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; letter-spacing: 3px; color: var(--text-muted); text-transform: uppercase; margin-top: 0.25rem; }
+
+  .scroll-indicator { position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; opacity: 0; animation: fadeInUp 0.8s ease 1.2s forwards; }
+  .scroll-indicator .mouse { width: 24px; height: 38px; border: 2px solid var(--text-muted); border-radius: 12px; position: relative; }
+  .scroll-indicator .mouse::after { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 3px; height: 8px; background: var(--accent-green); border-radius: 2px; animation: scroll-dot 2s ease-in-out infinite; }
+  .scroll-indicator span { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 3px; color: var(--text-muted); text-transform: uppercase; }
+
+  /* ─── Section Shared ─── */
+  section { position: relative; z-index: 1; padding: 6rem 2rem; }
+  .section-header { text-align: center; margin-bottom: 4rem; }
+  .section-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 4px; text-transform: uppercase; color: var(--accent-green); margin-bottom: 1rem; }
+  .section-title { font-family: 'Orbitron', monospace; font-size: clamp(1.5rem, 3vw, 2.5rem); font-weight: 700; margin-bottom: 1rem; }
+  .section-desc { color: var(--text-secondary); max-width: 600px; margin: 0 auto; line-height: 1.7; }
+
+  /* ─── Tools Grid ─── */
+  .tools-grid {
+    max-width: 1200px; margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .tool-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    transition: all 0.4s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    opacity: 0; transform: translateY(30px);
+  }
+
+  .tool-card.visible { opacity: 1; transform: translateY(0); transition: all 0.6s ease; }
+
+  .tool-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 16px 16px 0 0;
+    transition: opacity 0.4s ease;
+    opacity: 0.6;
+  }
+
+  .tool-card.offensive::before { background: linear-gradient(90deg, var(--accent-red), var(--accent-purple)); }
+  .tool-card.defensive::before { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
+  .tool-card.recon::before { background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue)); }
+  .tool-card.crypto-tool::before { background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); }
+
+  .tool-card:hover {
+    border-color: rgba(0, 240, 255, 0.3);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  .tool-card:hover::before { opacity: 1; }
+
+  .tool-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .tool-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+  }
+
+  .tool-card.offensive .tool-icon { background: rgba(255,68,68,0.1); color: var(--accent-red); }
+  .tool-card.defensive .tool-icon { background: rgba(0,255,136,0.1); color: var(--accent-green); }
+  .tool-card.recon .tool-icon { background: rgba(0,240,255,0.1); color: var(--accent-cyan); }
+  .tool-card.crypto-tool .tool-icon { background: rgba(77,124,255,0.1); color: var(--accent-blue); }
+
+  .tool-badges {
+    display: flex; gap: 0.4rem; flex-wrap: wrap;
+  }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+
+  .badge.python { color: #3b82f6; border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.1); }
+  .badge.go { color: #06b6d4; border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.1); }
+  .badge.rust { color: #f97316; border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.1); }
+  .badge.c { color: #8b5cf6; border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.1); }
+  .badge.v { color: var(--accent-green); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+
+  .tool-name {
+    font-family: 'Orbitron', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  .tool-desc {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin-bottom: 1.25rem;
+  }
+
+  .tool-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .tool-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    display: flex;
+    gap: 1rem;
+  }
+
+  .tool-meta .stars { color: #fbbf24; }
+
+  .tool-action {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent-cyan);
+    text-decoration: none;
+    transition: all 0.3s ease;
+  }
+
+  .tool-action:hover { color: var(--accent-green); }
+
+  /* ─── Architecture Diagram ─── */
+  .arch-section { max-width: 900px; margin: 0 auto; }
+
+  .arch-diagram {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2.5rem;
+    position: relative;
+  }
+
+  .arch-layer {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+
+  .arch-layer:last-child { border-bottom: none; }
+
+  .arch-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    width: 100px;
+    flex-shrink: 0;
+    text-align: right;
+  }
+
+  .arch-label.recon-l { color: var(--accent-cyan); }
+  .arch-label.exploit-l { color: var(--accent-red); }
+  .arch-label.defense-l { color: var(--accent-green); }
+  .arch-label.intel-l { color: var(--accent-purple); }
+
+  .arch-nodes {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+
+  .arch-node {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+  }
+
+  .arch-node:hover {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    transform: translateY(-2px);
+  }
+
+  .arch-connector {
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    letter-spacing: 4px;
+    margin-left: 116px;
+  }
+
+  /* ─── Footer ─── */
+  footer {
+    position: relative; z-index: 1;
+    border-top: 1px solid var(--border);
+    padding: 3rem 2rem;
+    text-align: center;
+  }
+  .footer-nav { display: flex; justify-content: center; gap: 2rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .footer-nav a { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); text-decoration: none; transition: color 0.3s ease; }
+  .footer-nav a:hover { color: var(--accent-cyan); }
+  .footer-copy { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--text-muted); letter-spacing: 2px; }
+
+  /* ─── Animations ─── */
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-glow-green { 0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.2); } 50% { box-shadow: 0 0 25px rgba(0,255,136,0.5); } }
+  @keyframes scroll-dot { 0%, 100% { opacity: 0; transform: translateX(-50%) translateY(0); } 50% { opacity: 1; transform: translateX(-50%) translateY(8px); } }
+
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    .tools-grid { grid-template-columns: 1fr; }
+    .hero-stats { gap: 1.5rem; }
+    .arch-label { display: none; }
+    .arch-connector { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<nav id="mainNav">
+  <div class="nav-inner">
+    <a href="https://idmmortality.com" class="nav-logo">
+      <div class="logo-icon">&#x2261;</div>
+      MICELIA
+      <span class="active-tag">LAB</span>
+    </a>
+    <div class="nav-links">
+      <a href="https://idmmortality.com" class="main-link">HOME</a>
+      <a href="https://blog.idmmortality.com">BLOG</a>
+      <a href="https://lab.idmmortality.com" class="active">LAB</a>
+      <a href="https://playground.idmmortality.com">PLAYGROUND</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge"><span>&#x2699; PLATFORM MODULES &amp; SERVICE MAP &#x2699;</span></div>
+    <h1>
+      <span class="line1">MAP THE<br>SYSTEM</span>
+      <span class="line2">Gateway &bull; Prompts &bull; Agents</span>
+    </h1>
+    <p class="hero-desc">
+      The lab page is the technical surface of Micelia: the gateway, the panel, the prompt engine,
+      the automation loops, and the operational services that keep the ecosystem running.
+    </p>
+    <div class="hero-stats">
+      <div class="stat"><div class="stat-num">4</div><div class="stat-label">PILLARS</div></div>
+      <div class="stat"><div class="stat-num">7</div><div class="stat-label">MODULES</div></div>
+      <div class="stat"><div class="stat-num">1</div><div class="stat-label">GATEWAY</div></div>
+      <div class="stat"><div class="stat-num">24/7</div><div class="stat-label">LOOP</div></div>
+    </div>
+  </div>
+  <div class="scroll-indicator"><div class="mouse"></div><span>Scroll</span></div>
+</section>
+
+<!-- Tools Showcase -->
+<section id="tools">
+  <div class="section-header">
+    <div class="section-tag">&#x25B9; MODULES</div>
+    <h2 class="section-title">Featured Capabilities</h2>
+    <p class="section-desc">Each card maps to a real subsystem in the project and the role it plays inside the operating loop.</p>
+  </div>
+
+  <div class="tools-grid">
+    <div class="tool-card recon" data-delay="0">
+      <div class="tool-header">
+        <div class="tool-icon">&#x1F50D;</div>
+        <div class="tool-badges"><span class="badge python">Python</span><span class="badge v">core</span></div>
+      </div>
+      <div class="tool-name">VITAL GATEWAY</div>
+      <div class="tool-desc">Unified entry point for services, APIs, and pipelines, with health endpoints, routing, and shared operational state.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; API</span><span>PORT 8888</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+
+    <div class="tool-card offensive" data-delay="100">
+      <div class="tool-header">
+        <div class="tool-icon">&#x26A1;</div>
+        <div class="tool-badges"><span class="badge go">Next</span><span class="badge v">panel</span></div>
+      </div>
+      <div class="tool-name">MISSION CONTROL</div>
+      <div class="tool-desc">The web panel for dashboard, monitor, settings, prompts, agents, calendar, and service visibility.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; UI</span><span>NEXT.JS</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+
+    <div class="tool-card defensive" data-delay="200">
+      <div class="tool-header">
+        <div class="tool-icon">&#x1F6E1;</div>
+        <div class="tool-badges"><span class="badge rust">Queue</span><span class="badge v">live</span></div>
+      </div>
+      <div class="tool-name">PROMPT OPS</div>
+      <div class="tool-desc">Inbox, staging, queue, results, and lists combined into one operating model for continuous prompt execution.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; FLOW</span><span>INBOX TO RESULT</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+
+    <div class="tool-card crypto-tool" data-delay="300">
+      <div class="tool-header">
+        <div class="tool-icon">&#x1F512;</div>
+        <div class="tool-badges"><span class="badge c">State</span><span class="badge v">smart</span></div>
+      </div>
+      <div class="tool-name">ENERGY ROUTER</div>
+      <div class="tool-desc">Battery, charging, and runtime awareness used to shape how and when the system spends local or cloud compute.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; POWER</span><span>DECISION LAYER</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+
+    <div class="tool-card recon" data-delay="400">
+      <div class="tool-header">
+        <div class="tool-icon">&#x1F578;</div>
+        <div class="tool-badges"><span class="badge python">Sync</span><span class="badge v">live</span></div>
+      </div>
+      <div class="tool-name">CALENDAR LOOP</div>
+      <div class="tool-desc">Google Calendar integration turns time-bound intent into scheduled prompts and visible upcoming operations.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; SYNC</span><span>SCHEDULED RUNS</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+
+    <div class="tool-card offensive" data-delay="500">
+      <div class="tool-header">
+        <div class="tool-icon">&#x1F4A5;</div>
+        <div class="tool-badges"><span class="badge go">Agents</span><span class="badge rust">Audit</span><span class="badge v">beta</span></div>
+      </div>
+      <div class="tool-name">AGENT CREWS</div>
+      <div class="tool-desc">Workflow orchestration with crews, runs, checkpoints, and audit visibility for multi-step autonomous work.</div>
+      <div class="tool-footer">
+        <div class="tool-meta"><span class="stars">&#x2605; WORKFLOWS</span><span>RUN HISTORY</span></div>
+        <a href="#architecture" class="tool-action">SEE FLOW &#x2192;</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture">
+  <div class="section-header">
+    <div class="section-tag">&#x25B9; ECOSYSTEM</div>
+    <h2 class="section-title">Operating Architecture</h2>
+    <p class="section-desc">The platform is structured as one loop: ingress, memory, automation, and execution across the UTOP.IA services.</p>
+  </div>
+
+  <div class="arch-section">
+    <div class="arch-diagram">
+      <div class="arch-layer">
+        <div class="arch-label recon-l">INGRESS</div>
+        <div class="arch-nodes">
+          <span class="arch-node">API Gateway</span>
+          <span class="arch-node">Health Checks</span>
+          <span class="arch-node">Auth</span>
+          <span class="arch-node">Service Registry</span>
+        </div>
+      </div>
+      <div class="arch-connector">&#x25BC; &#x25BC; &#x25BC;</div>
+      <div class="arch-layer">
+        <div class="arch-label exploit-l">MEMORY</div>
+        <div class="arch-nodes">
+          <span class="arch-node">Events</span>
+          <span class="arch-node">Prompt Lists</span>
+          <span class="arch-node">Queue State</span>
+          <span class="arch-node">Results</span>
+        </div>
+      </div>
+      <div class="arch-connector">&#x25BC; &#x25BC; &#x25BC;</div>
+      <div class="arch-layer">
+        <div class="arch-label defense-l">AUTOMATION</div>
+        <div class="arch-nodes">
+          <span class="arch-node">Agents</span>
+          <span class="arch-node">Calendar</span>
+          <span class="arch-node">Skills</span>
+          <span class="arch-node">Audit Trail</span>
+        </div>
+      </div>
+      <div class="arch-connector">&#x25BC; &#x25BC; &#x25BC;</div>
+      <div class="arch-layer">
+        <div class="arch-label intel-l">EXECUTION</div>
+        <div class="arch-nodes">
+          <span class="arch-node">Ollama</span>
+          <span class="arch-node">Cloud Providers</span>
+          <span class="arch-node">Energy Router</span>
+          <span class="arch-node">Monitor</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-nav">
+    <a href="https://idmmortality.com">HOME</a>
+    <a href="https://blog.idmmortality.com">BLOG</a>
+    <a href="https://lab.idmmortality.com">LAB</a>
+    <a href="https://playground.idmmortality.com">PLAYGROUND</a>
+  </div>
+  <div class="footer-copy">&copy; 2026 MICELIA &mdash; MODULE MAP FOR THE UTOP.IA OPERATING LAYER</div>
+</footer>
+
+<script>
+// ─── DNA Helix Background ───
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+let time = 0;
+function drawHelix() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const centerX = canvas.width * 0.85;
+  const amplitude = 60;
+  const points = 80;
+
+  for (let i = 0; i < points; i++) {
+    const y = (i / points) * canvas.height;
+    const offset = time + i * 0.15;
+    const x1 = centerX + Math.sin(offset) * amplitude;
+    const x2 = centerX + Math.sin(offset + Math.PI) * amplitude;
+    const opacity1 = 0.05 + Math.abs(Math.sin(offset)) * 0.1;
+    const opacity2 = 0.05 + Math.abs(Math.sin(offset + Math.PI)) * 0.1;
+
+    ctx.beginPath();
+    ctx.arc(x1, y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 255, 136, ${opacity1})`;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x2, y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 240, 255, ${opacity2})`;
+    ctx.fill();
+
+    if (i % 4 === 0) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.lineTo(x2, y);
+      ctx.strokeStyle = `rgba(168, 85, 247, 0.04)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+  time += 0.015;
+  requestAnimationFrame(drawHelix);
+}
+drawHelix();
+
+// ─── Nav Scroll ───
+const nav = document.getElementById('mainNav');
+window.addEventListener('scroll', () => { nav.classList.toggle('scrolled', window.scrollY > 50); });
+
+// ─── Card reveal ───
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const delay = entry.target.dataset.delay || 0;
+      setTimeout(() => entry.target.classList.add('visible'), delay);
+    }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.tool-card').forEach(card => observer.observe(card));
+</script>
+</body>
+</html>
