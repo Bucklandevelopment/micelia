@@ -76,12 +76,13 @@ from app.services.prompt_store import PromptStore
 from app.services.scheduler import PromptScheduler
 from app.services.service_registry import ServiceRegistry
 from app.services.tunnel import get_tunnel_service
+from app.services.user_store import UserStore
 
 # Clientes compartidos
-http_client: httpx.AsyncClient = None
-service_registry: ServiceRegistry = None
-event_bus: EventBus = None
-event_store: EventStore = None
+http_client: httpx.AsyncClient = None  # type: ignore[assignment]
+service_registry: ServiceRegistry = None  # type: ignore[assignment]
+event_bus: EventBus = None  # type: ignore[assignment]
+event_store: EventStore = None  # type: ignore[assignment]
 
 
 @asynccontextmanager
@@ -123,10 +124,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 f"Event Store no disponible (¿PostgreSQL apagado?): {e}. "
                 "Continuando sin event sourcing."
             )
-            event_store = None
+            event_store = None  # type: ignore[assignment]
             app.state.event_store = None
     else:
         app.state.event_store = None
+
+    # Inicializar User Store (funnel de registro) — degrada con warning si no hay DB.
+    # Independiente de los flags de prompt/event: el registro debe funcionar siempre
+    # que haya una base de datos alcanzable.
+    user_store = None
+    try:
+        user_store = UserStore()
+        await user_store.initialize()
+        app.state.user_store = user_store
+        log.info("User Store inicializado (funnel de registro)")
+    except Exception as e:
+        log.warning(
+            f"User Store no disponible (¿PostgreSQL apagado?): {e}. "
+            "Registro de usuarios deshabilitado."
+        )
+        user_store = None
+        app.state.user_store = None
 
     # Inicializar Prompt System
     prompt_store = None
@@ -237,6 +255,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         await prompt_executor.stop()
     if prompt_store:
         await prompt_store.close()
+    if user_store:
+        await user_store.close()
 
     await http_client.aclose()
     await event_bus.disconnect()
