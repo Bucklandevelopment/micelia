@@ -10,8 +10,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.logging import log
@@ -40,10 +39,9 @@ class PromptStore:
                 echo=settings.database_echo,
             )
 
-            self.async_session = sessionmaker(
+            self.async_session = async_sessionmaker(
                 self.engine,
-                class_=AsyncSession,
-                expire_on_commit=False
+                expire_on_commit=False,
             )
 
             async with self.engine.begin() as conn:

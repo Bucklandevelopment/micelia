@@ -10,8 +10,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, Integer, String, and_, func, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.logging import log
@@ -90,10 +89,9 @@ class EventStore:
                 echo=settings.database_echo,
             )
 
-            self.async_session = sessionmaker(
+            self.async_session = async_sessionmaker(
                 self.engine,
-                class_=AsyncSession,
-                expire_on_commit=False
+                expire_on_commit=False,
             )
 
             # Crear tablas
