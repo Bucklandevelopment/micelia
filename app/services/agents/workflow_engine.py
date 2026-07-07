@@ -140,6 +140,7 @@ class WorkflowEngine:
 
                 success = getattr(result, "success", result.get("success", False)) if isinstance(result, dict) else result.success
                 content = getattr(result, "content", result.get("content", "")) if isinstance(result, dict) else result.content
+                content = content if isinstance(content, str) else ""
                 tokens_in = getattr(result, "tokens_input", 0) if not isinstance(result, dict) else result.get("tokens_input", 0)
                 tokens_out = getattr(result, "tokens_output", 0) if not isinstance(result, dict) else result.get("tokens_output", 0)
                 model_used = getattr(result, "model", "") if not isinstance(result, dict) else result.get("model", "")

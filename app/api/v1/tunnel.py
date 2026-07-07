@@ -25,7 +25,7 @@ async def tunnel_status():
 
 
 @router.post("/start")
-async def tunnel_start(request: TunnelStartRequest = None):
+async def tunnel_start(request: Optional[TunnelStartRequest] = None):
     """Inicia un tunnel ngrok."""
     service = get_tunnel_service()
 

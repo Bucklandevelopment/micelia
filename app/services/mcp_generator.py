@@ -352,7 +352,7 @@ Micelia MCP Generator
 
     def list_servers(self) -> List[dict]:
         """Lista todos los servidores MCP generados."""
-        servers = []
+        servers: List[dict] = []
         if not self.output_dir.exists():
             return servers
 

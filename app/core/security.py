@@ -487,8 +487,9 @@ async def verify_auth(
     """
     # Try API key first
     if api_key:
-        if api_key_manager.validate_key(api_key):
-            return f"apikey:{api_key_manager.validate_key(api_key).get('name', 'unknown')}"
+        key_info = api_key_manager.validate_key(api_key)
+        if key_info:
+            return f"apikey:{key_info.get('name', 'unknown')}"
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     # Try JWT Bearer token

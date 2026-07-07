@@ -6,11 +6,16 @@ Sigue el patrón de EventStore con SQLAlchemy async.
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, select, update
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import CursorResult, and_, delete, func, select, update
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import settings
 from app.core.logging import log
@@ -26,8 +31,8 @@ class PromptStore:
     """
 
     def __init__(self):
-        self.engine = None
-        self.async_session = None
+        self.engine: AsyncEngine = None  # type: ignore[assignment]
+        self.async_session: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
 
     async def initialize(self):
         """Inicializa conexión y crea tablas"""
@@ -65,13 +70,13 @@ class PromptStore:
         content: str,
         category: str = "note",
         priority: int = 5,
-        tags: List[str] = None,
-        scheduled_at: datetime = None,
-        parent_prompt_id: UUID = None,
-        correlation_id: UUID = None,
+        tags: Optional[List[str]] = None,
+        scheduled_at: Optional[datetime] = None,
+        parent_prompt_id: Optional[UUID] = None,
+        correlation_id: Optional[UUID] = None,
         source: str = "api",
         prefer_paid: bool = False,
-        metadata: dict = None,
+        metadata: Optional[dict] = None,
         status: str = "pending",
         workflow: str = "quick_execute",
         provider_policy: str = "free-first"
@@ -122,7 +127,7 @@ class PromptStore:
                 .values(**fields)
             )
             await session.commit()
-            return result.rowcount > 0
+            return cast(CursorResult, result).rowcount > 0
 
     async def delete_prompt(self, prompt_id: UUID) -> bool:
         """Elimina un prompt"""
@@ -131,16 +136,16 @@ class PromptStore:
                 delete(PromptModel).where(PromptModel.prompt_id == prompt_id)
             )
             await session.commit()
-            return result.rowcount > 0
+            return cast(CursorResult, result).rowcount > 0
 
     # ==================== QUERIES ====================
 
     async def list_prompts(
         self,
-        status: str = None,
-        category: str = None,
-        tags: List[str] = None,
-        source: str = None,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -220,7 +225,7 @@ class PromptStore:
 
     # ==================== QUICK NOTES ====================
 
-    async def create_note(self, text: str, tags: List[str] = None) -> UUID:
+    async def create_note(self, text: str, tags: Optional[List[str]] = None) -> UUID:
         """Crea una nota rápida como prompt"""
         # Auto-detectar tags del texto (#tag)
         auto_tags = re.findall(r'#(\w+)', text)
@@ -262,7 +267,7 @@ class PromptStore:
     async def create_list(
         self,
         name: str,
-        description: str = None,
+        description: Optional[str] = None,
         category: str = "general",
         content_md: str = ""
     ) -> UUID:
@@ -306,7 +311,7 @@ class PromptStore:
                 .values(**fields)
             )
             await session.commit()
-            return result.rowcount > 0
+            return cast(CursorResult, result).rowcount > 0
 
     async def delete_list(self, slug: str) -> bool:
         """Elimina una lista"""
@@ -315,7 +320,7 @@ class PromptStore:
                 delete(PromptListModel).where(PromptListModel.slug == slug)
             )
             await session.commit()
-            return result.rowcount > 0
+            return cast(CursorResult, result).rowcount > 0
 
     async def list_all_lists(self) -> List[dict]:
         """Lista todas las prompt lists"""
@@ -341,14 +346,14 @@ class PromptStore:
                 select(PromptModel.status, func.count(PromptModel.prompt_id))
                 .group_by(PromptModel.status)
             )
-            by_status = dict(status_result.all())
+            by_status = dict(cast("list[tuple[str, int]]", status_result.all()))
 
             # Por categoría
             cat_result = await session.execute(
                 select(PromptModel.category, func.count(PromptModel.prompt_id))
                 .group_by(PromptModel.category)
             )
-            by_category = dict(cat_result.all())
+            by_category = dict(cast("list[tuple[str, int]]", cat_result.all()))
 
             # Completados hoy
             today_start = utcnow_naive().replace(
@@ -393,7 +398,7 @@ class PromptStore:
 
     # ==================== CLASSIFICATION ====================
 
-    async def classify_prompt(self, prompt_id: UUID, category: str, tags: List[str] = None,
+    async def classify_prompt(self, prompt_id: UUID, category: str, tags: Optional[List[str]] = None,
                                workflow: str = "quick_execute", provider_policy: str = "free-first") -> bool:
         """Clasifica un prompt captured -> classified"""
         fields = {

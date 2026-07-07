@@ -54,7 +54,7 @@ async def ai_status(request: Request):
     """Estado de los servicios de IA"""
     client: httpx.AsyncClient = request.app.state.http_client
 
-    status = {
+    status: Dict[str, Any] = {
         "ollama": {"available": False, "models": []},
         "codking": {"available": settings.codking_enabled, "cores": []},
         "compute_router": {"enabled": settings.compute_router_enabled}
@@ -282,7 +282,7 @@ async def list_models(request: Request):
     """Lista todos los modelos disponibles"""
     client: httpx.AsyncClient = request.app.state.http_client
 
-    models = {
+    models: Dict[str, List[Dict[str, Any]]] = {
         "ollama": [],
         "codking": [],
         "onnx": []

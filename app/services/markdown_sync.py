@@ -13,7 +13,7 @@ import asyncio
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.core.logging import log
 from app.core.time import utcnow_naive
@@ -256,7 +256,7 @@ class MarkdownSyncService:
 
             if existing:
                 # Update existing list with MD content
-                update_fields = {
+                update_fields: dict[str, Any] = {
                     "content_md": body.strip(),
                 }
                 if metadata.get("name"):
@@ -294,7 +294,7 @@ class MarkdownSyncService:
         MD -> DB first (human edits take priority).
         Then DB -> MD (reflect any DB-only changes).
         """
-        result = {
+        result: dict[str, Any] = {
             "md_to_db_lists": 0,
             "db_to_md_lists": 0,
             "inbox_prompts": 0,

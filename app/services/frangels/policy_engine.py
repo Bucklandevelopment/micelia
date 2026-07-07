@@ -166,7 +166,7 @@ class PolicyEngine:
         """Registra un gasto"""
         self.budget.record_spend(cost_usd)
 
-    def set_budget(self, daily: float = None, monthly: float = None):
+    def set_budget(self, daily: Optional[float] = None, monthly: Optional[float] = None):
         """Configura presupuesto"""
         if daily is not None:
             self.budget.daily_limit_usd = daily

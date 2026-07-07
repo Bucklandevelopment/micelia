@@ -8,7 +8,7 @@ Gestión de proveedores cloud gratuitos:
 """
 
 from dataclasses import asdict
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -118,7 +118,7 @@ async def list_providers():
         })
 
     # Agrupar por categoría
-    by_category = {
+    by_category: dict[str, list[dict[str, Any]]] = {
         "inference": [],
         "gpu": [],
         "database": [],
@@ -373,7 +373,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "total_tokens": result.tokens_input + result.tokens_output
             },
             "latency_ms": result.latency_ms,
-            "cached": result.cached
+            "cached": False
         }
 
     except Exception as e:
@@ -413,7 +413,7 @@ async def get_available_chat_providers():
 
     # Ordenar por tier
     tier_order = {"premium": 0, "standard": 1, "economy": 2}
-    available.sort(key=lambda x: tier_order.get(x["tier"], 3))
+    available.sort(key=lambda x: tier_order.get(str(x["tier"]), 3))
 
     return {
         "providers": available,

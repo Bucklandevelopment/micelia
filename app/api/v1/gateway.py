@@ -8,6 +8,8 @@ Rutea requests a:
 - /security/* → cybertools
 """
 
+from typing import Optional
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -31,7 +33,7 @@ async def proxy_request(
     request: Request,
     service_name: str,
     path: str,
-    method: str = None
+    method: Optional[str] = None
 ) -> Response:
     """
     Proxea una request a un microservicio.

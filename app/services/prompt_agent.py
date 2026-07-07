@@ -10,7 +10,7 @@ them before priority calculation.
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from app.core.config import settings
@@ -89,7 +89,7 @@ class PromptPrioritizationAgent:
                 taxonomy_result = await runner.run_taxonomy(prompt)
                 taxonomy_data = taxonomy_result.get("data", {})
 
-                update_fields = {
+                update_fields: dict[str, Any] = {
                     "status": "pending",
                 }
 

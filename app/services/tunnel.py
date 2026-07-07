@@ -5,7 +5,7 @@ Expone Micelia al mundo via URL pública.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
 from app.core.logging import log
@@ -17,12 +17,12 @@ class TunnelService:
     """
 
     def __init__(self):
-        self._tunnel = None
+        self._tunnel: Any = None
         self._public_url: Optional[str] = None
         self._started_at: Optional[str] = None
         self._connected = False
 
-    async def start(self, port: int = None) -> Optional[str]:
+    async def start(self, port: Optional[int] = None) -> Optional[str]:
         """Inicia un tunnel ngrok y retorna la URL pública."""
         if self._connected:
             return self._public_url
@@ -35,7 +35,7 @@ class TunnelService:
             if settings.ngrok_authtoken:
                 conf.get_default().auth_token = settings.ngrok_authtoken
 
-            options = {"addr": port, "bind_tls": True}
+            options: Dict[str, Any] = {"addr": port, "bind_tls": True}
 
             if settings.ngrok_domain:
                 options["hostname"] = settings.ngrok_domain
@@ -82,7 +82,7 @@ class TunnelService:
                 "started_at": None,
             }
 
-        info = {
+        info: Dict[str, Any] = {
             "connected": True,
             "public_url": self._public_url,
             "started_at": self._started_at,

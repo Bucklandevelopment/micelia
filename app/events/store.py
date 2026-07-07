@@ -5,12 +5,17 @@ Implementa Event Sourcing con PostgreSQL.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, Integer, String, and_, func, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import settings
 from app.core.logging import log
@@ -76,8 +81,8 @@ class EventStore:
     """
 
     def __init__(self):
-        self.engine = None
-        self.async_session = None
+        self.engine: AsyncEngine = None  # type: ignore[assignment]
+        self.async_session: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
 
     async def initialize(self):
         """Inicializa conexión y crea tablas si no existen"""
@@ -115,17 +120,17 @@ class EventStore:
         source: str,
         action: str,
         event_type: str,
-        payload: dict = None,
-        subcategory: str = None,
-        event_metadata: dict = None,
-        tags: List[str] = None,
-        correlation_id: UUID = None,
-        causation_id: UUID = None,
-        user_id: UUID = None,
-        compute_provider: str = None,
-        compute_model: str = None,
-        compute_latency_ms: float = None,
-        compute_cost_usd: float = None
+        payload: Optional[dict] = None,
+        subcategory: Optional[str] = None,
+        event_metadata: Optional[dict] = None,
+        tags: Optional[List[str]] = None,
+        correlation_id: Optional[UUID] = None,
+        causation_id: Optional[UUID] = None,
+        user_id: Optional[UUID] = None,
+        compute_provider: Optional[str] = None,
+        compute_model: Optional[str] = None,
+        compute_latency_ms: Optional[float] = None,
+        compute_cost_usd: Optional[float] = None
     ) -> UUID:
         """
         Añade un evento al store (append-only).
@@ -176,13 +181,13 @@ class EventStore:
 
     async def query_events(
         self,
-        category: str = None,
-        subcategory: str = None,
-        source: str = None,
-        event_type: str = None,
-        since: datetime = None,
-        until: datetime = None,
-        user_id: UUID = None,
+        category: Optional[str] = None,
+        subcategory: Optional[str] = None,
+        source: Optional[str] = None,
+        event_type: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        user_id: Optional[UUID] = None,
         limit: int = 100,
         offset: int = 0
     ) -> List[dict]:
@@ -234,7 +239,7 @@ class EventStore:
     async def get_timeline(
         self,
         date: datetime,
-        categories: List[str] = None
+        categories: Optional[List[str]] = None
     ) -> List[dict]:
         """Obtiene timeline de un día"""
         start = datetime.combine(date.date(), datetime.min.time())
@@ -258,7 +263,7 @@ class EventStore:
 
             return [self._event_to_dict(e) for e in events]
 
-    async def get_stats(self, since: datetime = None) -> Dict[str, Any]:
+    async def get_stats(self, since: Optional[datetime] = None) -> Dict[str, Any]:
         """Obtiene estadísticas de eventos"""
         async with self.async_session() as session:
             # Total de eventos
@@ -276,7 +281,8 @@ class EventStore:
             if since:
                 cat_query = cat_query.where(IdmEventModel.timestamp >= since)
             cat_result = await session.execute(cat_query)
-            by_category = dict(cat_result.all())
+            # Row es tupla en runtime; el stub de SQLAlchemy no lo refleja.
+            by_category: Dict[str, int] = dict(cat_result.all())  # type: ignore[arg-type]
 
             # Por fuente
             source_query = select(
@@ -286,7 +292,8 @@ class EventStore:
             if since:
                 source_query = source_query.where(IdmEventModel.timestamp >= since)
             source_result = await session.execute(source_query)
-            by_source = dict(source_result.all())
+            # Row es tupla en runtime; el stub de SQLAlchemy no lo refleja.
+            by_source: Dict[str, int] = dict(source_result.all())  # type: ignore[arg-type]
 
             return {
                 "total_events": total,

@@ -14,11 +14,14 @@ import json
 import logging
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import httpx
 
 from app.sdk.models import EVENT_CHANNELS, HealthResponse, IdmEvent
+
+if TYPE_CHECKING:
+    import redis.asyncio as aioredis
 
 logger = logging.getLogger("micelia-sdk")
 
@@ -76,10 +79,12 @@ class IdmServiceClient:
         self.heartbeat_interval = heartbeat_interval
         self.redis_url = redis_url
 
-        self._http_client: Optional[httpx.AsyncClient] = None
+        # Resource attributes are non-None after start()/_connect_redis();
+        # annotate with concrete runtime types (contract), init to None.
+        self._http_client: httpx.AsyncClient = None  # type: ignore[assignment]
         self._heartbeat_task: Optional[asyncio.Task] = None
-        self._redis = None
-        self._pubsub = None
+        self._redis: "aioredis.Redis" = None  # type: ignore[assignment]
+        self._pubsub: "aioredis.client.PubSub" = None  # type: ignore[assignment]
         self._subscriptions: Dict[str, List[Callable]] = {}
         self._listener_task: Optional[asyncio.Task] = None
         self._started_at: Optional[datetime] = None
@@ -490,6 +495,8 @@ class IdmServiceClient:
 
     async def _connect_redis(self):
         """Connect to Redis for pub/sub."""
+        if not self.redis_url:
+            return
         try:
             import redis.asyncio as aioredis
 
@@ -498,7 +505,7 @@ class IdmServiceClient:
                 encoding="utf-8",
                 decode_responses=True,
             )
-            await self._redis.ping()
+            await self._redis.ping()  # type: ignore[misc]
             self._pubsub = self._redis.pubsub()
             logger.info("Redis connected: %s", self.redis_url)
         except ImportError:
@@ -506,7 +513,7 @@ class IdmServiceClient:
                 "redis package not installed; pub/sub disabled. "
                 "Install with: pip install redis"
             )
-            self._redis = None
+            self._redis = None  # type: ignore[assignment]
         except Exception as e:
             logger.warning("Redis connection failed: %s", e)
-            self._redis = None
+            self._redis = None  # type: ignore[assignment]

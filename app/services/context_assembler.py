@@ -37,7 +37,7 @@ class ContextAssembler:
         self.skills_manager = skills_manager
         self._identity_cache: Optional[str] = None
 
-    async def assemble(self, prompt: dict, include_layers: List[int] = None) -> str:
+    async def assemble(self, prompt: dict, include_layers: Optional[List[int]] = None) -> str:
         """
         Ensambla el prompt final con todas las capas aplicables.
 

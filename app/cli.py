@@ -13,6 +13,7 @@ Uso:
 import asyncio
 import sys
 from functools import wraps
+from typing import Any
 
 import click
 import httpx
@@ -199,7 +200,7 @@ async def events(host: str, port: int, limit: int, category: str):
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            params = {"limit": limit}
+            params: dict[str, Any] = {"limit": limit}
             if category:
                 params["category"] = category
 

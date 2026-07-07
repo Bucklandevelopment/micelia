@@ -7,7 +7,7 @@ Permite comunicación asíncrona entre servicios del Panel IDM.
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
 
 import redis.asyncio as redis
 
@@ -23,8 +23,8 @@ class EventBus:
     """
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
-        self._pubsub: Optional[redis.client.PubSub] = None
+        self._redis: redis.Redis = None  # type: ignore[assignment]
+        self._pubsub: redis.client.PubSub = None  # type: ignore[assignment]
         self._subscriptions: Dict[str, List[Callable]] = {}
         self._listener_task: Optional[asyncio.Task] = None
         self._connected = False
@@ -39,7 +39,9 @@ class EventBus:
             )
 
             # Verificar conexión
-            await self._redis.ping()
+            # El cliente async siempre devuelve un awaitable; el stub lo tipa
+            # como "Awaitable[bool] | bool", así que lo estrechamos con cast.
+            await cast(Awaitable[Any], self._redis.ping())
 
             self._pubsub = self._redis.pubsub()
             self._connected = True
@@ -116,7 +118,7 @@ class EventBus:
 
         log.info(f"Suscrito a canal: {channel}")
 
-    async def unsubscribe(self, channel: str, callback: Callable = None):
+    async def unsubscribe(self, channel: str, callback: Optional[Callable] = None):
         """
         Desuscribe de un canal.
 
@@ -125,7 +127,7 @@ class EventBus:
             callback: Callback específico a remover (None = todos)
         """
         if channel in self._subscriptions:
-            if callback:
+            if callback is not None:
                 self._subscriptions[channel].remove(callback)
             else:
                 self._subscriptions[channel] = []

@@ -40,7 +40,7 @@ class EntireSessionService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         session_id = str(uuid4())
-        session = {
+        session: Dict[str, Any] = {
             "session_id": session_id,
             "prompt_id": prompt_id,
             "workflow_name": workflow_name,

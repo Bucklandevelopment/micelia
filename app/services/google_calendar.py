@@ -23,7 +23,7 @@ try:
     GOOGLE_LIBS_AVAILABLE = True
 except ImportError:
     GOOGLE_LIBS_AVAILABLE = False
-    Credentials = None
+    Credentials = None  # type: ignore[misc,assignment]
     Flow = None
     build = None
 
@@ -46,7 +46,9 @@ class GoogleCalendarService:
 
     def __init__(self):
         self._credentials: Optional[Any] = None
-        self._service: Optional[Any] = None
+        # Set by _load_credentials()/handle_callback() before any API call
+        # (guarded by _ensure_service()); typed Any so None reset is allowed.
+        self._service: Any = None
         self._last_sync: Optional[datetime] = None
         self._synced_event_ids: set = set()
 
@@ -271,8 +273,8 @@ class GoogleCalendarService:
     async def get_events(
         self,
         calendar_id: str = "primary",
-        time_min: str = None,
-        time_max: str = None,
+        time_min: Optional[str] = None,
+        time_max: Optional[str] = None,
         max_results: int = 50,
     ) -> List[Dict[str, Any]]:
         """
@@ -402,12 +404,12 @@ class GoogleCalendarService:
         """
         self._ensure_service()
 
+        # Import here to avoid circular imports
+        from app.services.prompt_store import PromptStore
+
+        store = PromptStore()
+        await store.initialize()
         try:
-            # Import here to avoid circular imports
-            from app.services.prompt_store import get_prompt_store
-
-            store = get_prompt_store()
-
             now = datetime.now(timezone.utc)
             time_max = (now + timedelta(days=1)).isoformat()
 
@@ -469,6 +471,8 @@ class GoogleCalendarService:
         except Exception as e:
             log.error(f"Calendar sync (from) error: {e}")
             raise
+        finally:
+            await store.close()
 
     async def sync_results_to_calendar(self) -> Dict[str, Any]:
         """
@@ -482,11 +486,11 @@ class GoogleCalendarService:
         """
         self._ensure_service()
 
+        from app.services.prompt_store import PromptStore
+
+        store = PromptStore()
+        await store.initialize()
         try:
-            from app.services.prompt_store import get_prompt_store
-
-            store = get_prompt_store()
-
             # Get recently completed prompts from calendar source
             result = await store.list_prompts(
                 status="completed",
@@ -552,6 +556,8 @@ class GoogleCalendarService:
         except Exception as e:
             log.error(f"Calendar sync (to) error: {e}")
             raise
+        finally:
+            await store.close()
 
     # ==================== DISCONNECT ====================
 

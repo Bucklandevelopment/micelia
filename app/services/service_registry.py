@@ -5,7 +5,7 @@ Service Registry: Descubrimiento y monitoreo de microservicios.
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -41,7 +41,7 @@ class ServiceRegistry:
     async def discover_services(self):
         """Descubre y registra todos los servicios configurados"""
 
-        service_configs = {
+        service_configs: Dict[str, Dict[str, Any]] = {
             "health": {
                 "url": settings.health_service_url,
                 "enabled": settings.health_service_enabled,

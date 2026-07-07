@@ -55,6 +55,7 @@ def _parse_routine_md(path: Path) -> Dict[str, Any]:
         if len(parts) >= 3:
             fm_text = parts[1].strip()
             body = parts[2]
+            val: Any = ""
             for line in fm_text.splitlines():
                 if ":" in line:
                     key, _, val = line.partition(":")
