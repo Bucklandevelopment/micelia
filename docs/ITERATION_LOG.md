@@ -48,10 +48,15 @@ restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1b
     `check_service` (found/not-found), getters, `discover_services` (registro + hint) y
     `_continuous_monitoring` (un ciclo + cancelación, sleep monkeypatcheado). Módulo:
     **0% → 97%**.
+  - `test(cov)`: `tests/test_context_assembler_codex.py` (21 tests) para
+    `app/services/context_assembler.py` — deps inyectadas (prompt_store/skills_manager
+    mockeadas), capas de filesystem con `tmp_path` + settings/cwd monkeypatcheados, capa
+    temporal con datetime fijado (5 franjas horarias). Cubre `assemble` (todas/subset/vacío),
+    las 5 capas y sus ramas de error, y el singleton. Módulo: **0% → 97%**.
 
 - **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
-  (66 ficheros, 0 errores; eran 671) · test ✓ (332 pass + 20 SDK, 2 skip) · cov ✓
-  (**31.50%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
+  (66 ficheros, 0 errores; eran 671) · test ✓ (353 pass + 20 SDK, 2 skip) · cov ✓
+  (**33.34%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
   residuales.
 
 - **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
