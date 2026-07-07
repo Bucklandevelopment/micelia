@@ -53,10 +53,16 @@ restantes; se cableó `calendar_name`; el commit raíz ya existía (aecb0ea/fd1b
     mockeadas), capas de filesystem con `tmp_path` + settings/cwd monkeypatcheados, capa
     temporal con datetime fijado (5 franjas horarias). Cubre `assemble` (todas/subset/vacío),
     las 5 capas y sus ramas de error, y el singleton. Módulo: **0% → 97%**.
+  - `test(cov)`: `tests/test_prompt_agent_codex.py` (29 tests) para
+    `app/services/prompt_agent.py` — helpers puros `_calculate_priority` (boosts de
+    categoría/tags/programación/antigüedad + clamp) y `_find_group` (correlación/tags
+    compartidos) probados directamente; pipeline async (`_classify_captured`,
+    `_process_pending`, `_run_loop`, start/stop) con store/event_bus/taxonomy-runner
+    mockeados y sleep monkeypatcheado. Módulo: **0% → 98%**.
 
 - **Verify:** **`make verify` VERDE COMPLETO por primera vez** — lint ✓ · typecheck ✓
-  (66 ficheros, 0 errores; eran 671) · test ✓ (353 pass + 20 SDK, 2 skip) · cov ✓
-  (**33.34%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
+  (66 ficheros, 0 errores; eran 671) · test ✓ (382 pass + 20 SDK, 2 skip) · cov ✓
+  (**35.64%** ≥ gate 28%, era 29.82%). Nada arrancado (ni gateway ni infra); sin procesos
   residuales.
 
 - **DECISIÓN PENDIENTE:** ninguna nueva. Las 3 de Ciclo 1 quedan **RESUELTAS**
