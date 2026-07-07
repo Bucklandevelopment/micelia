@@ -311,13 +311,20 @@ class OSAScriptService:
         today = datetime.now().strftime("%Y-%m-%d")
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        # Restringe la búsqueda a un calendario concreto si se indica; si no,
+        # recorre todos los calendarios.
+        if calendar_name:
+            cal_source = f'{{calendar "{calendar_name}"}}'
+        else:
+            cal_source = "calendars"
+
         script = f'''
         tell application "Calendar"
             set todayStart to date "{today}"
             set todayEnd to date "{tomorrow}"
             set eventList to {{}}
 
-            repeat with cal in calendars
+            repeat with cal in {cal_source}
                 set calEvents to (every event of cal whose start date ≥ todayStart and start date < todayEnd)
                 repeat with evt in calEvents
                     set eventInfo to summary of evt & "|" & (start date of evt as string) & "|" & (end date of evt as string) & "|" & (location of evt as string)
