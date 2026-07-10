@@ -712,3 +712,320 @@ class TestSerialization:
         result = store._prompt_to_dict(prompt)
         assert result["scheduled_at"] is None
         assert result["completed_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# get_scheduled_prompts
+# ---------------------------------------------------------------------------
+
+class TestScheduledPrompts:
+
+    @pytest.mark.asyncio
+    async def test_get_scheduled_prompts(self, store, mock_session):
+        p1 = _make_prompt_model(status="pending", scheduled_at=datetime.now(timezone.utc))
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [p1]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value = scalars_mock
+
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        results = await store.get_scheduled_prompts(datetime.now(timezone.utc))
+        assert len(results) == 1
+        assert results[0]["status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_get_scheduled_prompts_empty(self, store, mock_session):
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock = MagicMock()
+        result_mock.scalars.return_value = scalars_mock
+
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        results = await store.get_scheduled_prompts(datetime.now(timezone.utc))
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Prompt lists CRUD
+# ---------------------------------------------------------------------------
+
+class TestPromptLists:
+
+    @pytest.mark.asyncio
+    async def test_create_list_returns_uuid_and_slug(self, store, mock_session):
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        lid = await store.create_list("My Cool List", description="desc", category="work")
+        assert isinstance(lid, UUID)
+        added = mock_session.add.call_args[0][0]
+        assert added.name == "My Cool List"
+        assert added.slug == "my-cool-list"
+        assert added.category == "work"
+        assert added.description == "desc"
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_list_defaults(self, store, mock_session):
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        await store.create_list("Plain")
+        added = mock_session.add.call_args[0][0]
+        assert added.category == "general"
+        assert added.content_md == ""
+
+    @pytest.mark.asyncio
+    async def test_get_list_found(self, store, mock_session):
+        pl = _make_list_model(slug="found-list", name="Found")
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = pl
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        result = await store.get_list("found-list")
+        assert result is not None
+        assert result["slug"] == "found-list"
+        assert result["name"] == "Found"
+
+    @pytest.mark.asyncio
+    async def test_get_list_not_found(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        result = await store.get_list("nope")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_update_list_success(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 1
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.update_list("some-slug", name="Renamed")
+        assert ok is True
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_update_list_not_found(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 0
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.update_list("ghost", name="x")
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_delete_list_success(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 1
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.delete_list("some-slug")
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_delete_list_not_found(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 0
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.delete_list("ghost")
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_list_all_lists(self, store, mock_session):
+        pl1 = _make_list_model(slug="a")
+        pl2 = _make_list_model(slug="b")
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [pl1, pl2]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value = scalars_mock
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        results = await store.list_all_lists()
+        assert [r["slug"] for r in results] == ["a", "b"]
+
+    def test_list_to_dict_with_updated_at(self, store):
+        now = datetime.now(timezone.utc)
+        pl = _make_list_model(slug="s", created_at=now, updated_at=now)
+        result = store._list_to_dict(pl)
+        assert result["slug"] == "s"
+        assert result["created_at"] == now.isoformat()
+        assert result["updated_at"] == now.isoformat()
+
+    def test_list_to_dict_none_dates(self, store):
+        pl = _make_list_model(created_at=None, updated_at=None, metadata_json=None)
+        result = store._list_to_dict(pl)
+        assert result["created_at"] is None
+        assert result["updated_at"] is None
+        assert result["metadata"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Promotion (promote_to_list / _skill / _mcp)
+# ---------------------------------------------------------------------------
+
+class TestPromote:
+
+    @pytest.mark.asyncio
+    async def test_promote_to_list_success(self, store):
+        store.get_prompt = AsyncMock(return_value={"content": "do the thing"})
+        store.get_list = AsyncMock(return_value={"content_md": "# existing"})
+        store.update_list = AsyncMock(return_value=True)
+        store.update_prompt = AsyncMock(return_value=True)
+
+        ok = await store.promote_to_list(uuid4(), "my-list")
+        assert ok is True
+        # content appended as a checkbox item
+        _, kwargs = store.update_list.call_args
+        assert "- [ ] do the thing" in kwargs["content_md"]
+        # prompt marked promoted with the right ref
+        _, pkwargs = store.update_prompt.call_args
+        assert pkwargs["status"] == "promoted"
+        assert pkwargs["promoted_to"] == "list"
+        assert pkwargs["promoted_ref"] == "my-list"
+
+    @pytest.mark.asyncio
+    async def test_promote_to_list_prompt_missing(self, store):
+        store.get_prompt = AsyncMock(return_value=None)
+        ok = await store.promote_to_list(uuid4(), "my-list")
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_promote_to_list_list_missing(self, store):
+        store.get_prompt = AsyncMock(return_value={"content": "x"})
+        store.get_list = AsyncMock(return_value=None)
+        ok = await store.promote_to_list(uuid4(), "ghost")
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_promote_to_skill_success(self, store, mock_session):
+        store.get_prompt = AsyncMock(return_value={"content": "template body"})
+        store.update_prompt = AsyncMock(return_value=True)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        skill_id = await store.promote_to_skill(uuid4(), "My Skill", "^trigger")
+        assert isinstance(skill_id, UUID)
+        added = mock_session.add.call_args[0][0]
+        assert added.name == "My Skill"
+        assert added.slug == "my-skill"
+        assert added.prompt_template == "template body"
+        _, pkwargs = store.update_prompt.call_args
+        assert pkwargs["promoted_to"] == "skill"
+        assert pkwargs["promoted_ref"] == "my-skill"
+
+    @pytest.mark.asyncio
+    async def test_promote_to_skill_prompt_missing(self, store):
+        store.get_prompt = AsyncMock(return_value=None)
+        result = await store.promote_to_skill(uuid4(), "X", "^t")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_promote_to_mcp(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 1
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.promote_to_mcp(uuid4())
+        assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# approve_staged
+# ---------------------------------------------------------------------------
+
+class TestApproveStaged:
+
+    @pytest.mark.asyncio
+    async def test_approve_staged(self, store, mock_session):
+        result_mock = MagicMock()
+        result_mock.rowcount = 1
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        ok = await store.approve_staged(uuid4())
+        assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# Inbox / staging queries
+# ---------------------------------------------------------------------------
+
+class TestInboxQueries:
+
+    @pytest.mark.asyncio
+    async def test_get_captured_prompts(self, store, mock_session):
+        p1 = _make_prompt_model(status="captured")
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [p1]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value = scalars_mock
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        results = await store.get_captured_prompts()
+        assert len(results) == 1
+        assert results[0]["status"] == "captured"
+
+    @pytest.mark.asyncio
+    async def test_get_staged_prompts(self, store, mock_session):
+        p1 = _make_prompt_model(status="staged")
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [p1]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value = scalars_mock
+        mock_session.execute = AsyncMock(return_value=result_mock)
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        results = await store.get_staged_prompts()
+        assert len(results) == 1
+        assert results[0]["status"] == "staged"
+
+    @pytest.mark.asyncio
+    async def test_get_archived_prompts(self, store, mock_session):
+        p1 = _make_prompt_model(status="archived")
+        count_result = MagicMock()
+        count_result.scalar.return_value = 1
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [p1]
+        query_result = MagicMock()
+        query_result.scalars.return_value = scalars_mock
+        mock_session.execute = AsyncMock(side_effect=[count_result, query_result])
+        store.async_session = MagicMock(return_value=_mock_session_ctx(mock_session))
+
+        result = await store.get_archived_prompts(limit=10, offset=5)
+        assert result["total"] == 1
+        assert len(result["prompts"]) == 1
+        assert result["limit"] == 10
+        assert result["offset"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle: close
+# ---------------------------------------------------------------------------
+
+class TestClose:
+
+    @pytest.mark.asyncio
+    async def test_close_disposes_engine(self, store):
+        engine = AsyncMock()
+        store.engine = engine
+        await store.close()
+        engine.dispose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_close_no_engine(self, store):
+        store.engine = None
+        # Should not raise
+        await store.close()
