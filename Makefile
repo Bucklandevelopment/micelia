@@ -226,10 +226,10 @@ test-sdk: ## Tests del SDK Python (sdk/python/tests/)
 test-fast: ## Tests en paralelo, sin cobertura (requiere pytest-xdist)
 	$(PYTEST) -n auto --tb=short tests/
 
-cov: ## Cobertura gate = 37% (medido 39%, objetivo v0.2 = 45%, ver docs/COVERAGE_ROADMAP.md)
-	$(PYTEST) --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=37 tests/ sdk/python/tests/
+cov: ## Cobertura gate = 41% (medido 43%, objetivo v0.2 = 45%, ver docs/COVERAGE_ROADMAP.md)
+	$(PYTEST) --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=41 tests/ sdk/python/tests/
 	@printf "$(GREEN)✓ Reporte HTML en $(BOLD)htmlcov/index.html$(RESET)\n"
-	@printf "$(YELLOW)Nota:$(RESET) gate 37%% (medido 39%%). Objetivo v0.2 = 45%%. Ver $(BOLD)docs/COVERAGE_ROADMAP.md$(RESET)\n"
+	@printf "$(YELLOW)Nota:$(RESET) gate 41%% (medido 43%%). Objetivo v0.2 = 45%%. Ver $(BOLD)docs/COVERAGE_ROADMAP.md$(RESET)\n"
 
 verify: lint typecheck test cov ## Suite completa pre-commit: lint + typecheck + test + cov
 	@printf "$(GREEN)$(BOLD)✓ Verify completo: todo OK$(RESET)\n"

@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-07 — **29.37%** sobre 6.765 statements en `app/` (1.987 cubiertos, 4.778 sin cubrir). Gate `make cov` = **28%**. Medición previa: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2)
+**Última medición**: 2026-07-10 — **43.11%** sobre 6.908 statements en `app/`. Gate `make cov` = **41%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → **43.11%** (Ciclo 4: PromptOSAgentRunner 0→98%, ProviderStore 33→100%)
 
 ---
 
@@ -31,8 +31,8 @@ Módulos críticos del orquestador identificados con baja cobertura. Cada uno re
 
 | Módulo | Razón | Plan v0.2 |
 |---|---|---|
-| `app/services/agents/` | Sistema multi-agente. Crítico operativamente, suite E2E no lo toca | ✅ crew_manager + agent_definitions + workflows (Ciclo 1), workflow_engine 80% (Ciclo 2). Pendiente: prompt_os_agents |
-| `app/services/frangels/` | Orquestación de providers IA. Crítico para AI sovereignty | ✅ policy_engine 100%, quota_manager 96%, angels 97% (Ciclo 2). Pendiente: orchestrator (17%), provider_store (33%) con mocks de providers |
+| `app/services/agents/` | Sistema multi-agente. Crítico operativamente, suite E2E no lo toca | ✅ crew_manager + agent_definitions + workflows (Ciclo 1), workflow_engine 81% (Ciclo 2), prompt_os_agents 98% (Ciclo 4). Módulo cubierto |
+| `app/services/frangels/` | Orquestación de providers IA. Crítico para AI sovereignty | ✅ policy_engine 100%, quota_manager 96%, angels 97% (Ciclo 2), provider_store 100% (Ciclo 4). Pendiente: orchestrator (17%) con mocks de providers |
 | `app/services/prompt_*` | Pipeline completo de prompts (store, agent, executor, scheduler) | Tests de happy path por cada etapa del pipeline |
 | `app/api/v1/ai.py` | Endpoint integración modelos. Tocado tangencialmente por T3.1 | Tests directos de cada endpoint con mocks de proveedor |
 | `app/api/v1/prompts.py` | API de prompts. No cubierta por E2E | Tests CRUD básicos |
