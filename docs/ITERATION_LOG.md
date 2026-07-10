@@ -16,6 +16,67 @@
 
 ---
 
+## 2026-07-10 — Ciclo 6 (prompt_store 63→95% · cobertura 44.60→45.51% · **hito v0.2 = 45% ALCANZADO en medición real** · gate 43→44)
+
+**Contexto:** Ciclo 5 dejó `make verify` 100% verde (512 pass, cov 44.60%) con dos
+DECISIONES PENDIENTES para Jessicache, **ambas bloqueadas para trabajo autónomo**: (1)
+bug bcrypt del funnel (tocar `uv.lock` = cambio con riesgo de arrastre, requiere
+aprobación), (2) frontend `/register` (feature nueva + QA humano, no verificable por
+`make verify`). Con la prioridad #1 (rojo→verde) ya satisfecha y ambos unblocks
+pendientes, la tarea de máximo valor autónomo-segura es la prioridad #3 (cobertura) —
+además es el "Mañana" explícito de Ciclo 5: cerrar `app/services/prompt_store.py` (63%,
+~72 stmts sin cubrir) para cruzar el hito v0.2 = 45.00% **en medición real** (Ciclo 5
+lo alcanzó sólo en display, medido 44.60%). Reconocimiento confirmó el hueco: el
+`test_prompt_store_codex.py` existente (714 líneas) cubría prompts CRUD/notes/list/stats/
+lifecycle/serialización pero NO los métodos de prompt-lists, promoción ni inbox — todos
+CRUD puro con el mismo patrón mock-session ya probado. Un solo commit de test,
+verify-verde, reversible. No se tocó ninguna DECISIÓN PENDIENTE ni infra.
+
+- **Hecho:**
+  - `test(cov)` (`e564043`): +25 tests en `tests/test_prompt_store_codex.py` para los
+    métodos sin cubrir de `prompt_store.py`, reutilizando helpers/fixtures existentes
+    (`_make_prompt_model`, `_make_list_model` —antes sin uso—, `_mock_session_ctx`,
+    `store`/`mock_session`). Clases nuevas: `TestScheduledPrompts` (get_scheduled_prompts),
+    `TestPromptLists` (create/get/update/delete/list_all_lists + `_list_to_dict` con y sin
+    `updated_at`), `TestPromote` (promote_to_list happy + ramas prompt/list ausentes;
+    promote_to_skill happy + prompt ausente; promote_to_mcp — los promote encadenan
+    llamadas internas stubbeadas con AsyncMock para aislar ramas), `TestApproveStaged`,
+    `TestInboxQueries` (captured/staged/archived con forma `{prompts,total,limit,offset}`)
+    y `TestClose` (dispose + rama engine=None). Módulo: **63% → 95%** (única franja sin
+    cubrir: `initialize()` 39-59, setup real de engine DB — omitido por brittleness, no
+    aporta valor con mocks).
+  - `chore(cov)` (`56ec0b6`): ratchet gate `make cov` **43% → 44%** (medido 45.51%,
+    margen 1.51 pt; suites deterministas sin red/DB/tiempo). Actualizado comentario+nota
+    del target en `Makefile` y cabecera+histórico+fila `prompt_*` de
+    `docs/COVERAGE_ROADMAP.md` (44.60→45.51%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ · typecheck ✓ (0 errores) · test ✓
+  (**537 pass** + 2 skip; eran 512) · cov ✓ (**45.51%** ≥ gate 44%, era 44.60%/gate 43).
+  +0.91 pts. **Hito v0.2 = 45% alcanzado en medición real** (no sólo display). No se
+  arrancó nada (ni gateway ni infra); sin procesos residuales; árbol limpio (3 commits
+  atómicos).
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login de usuario registrado darían 500 en runtime). Recomendación
+  intacta: fijar `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin
+  aprobación (cambio de lockfile). (2) **frontend del funnel** (`/register` inexistente en
+  `micelia/frontend`). Feature nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** el ratchet de mypy hacia `strict=true` sigue vivo (mejora, no
+  bloquea). Dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand). Mayor gap
+  restante de cobertura: `frangels/orchestrator.py` (17%, 289 stmts) y
+  `google_calendar.py` (13%, 240 stmts).
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login que ejercite `pwd_context` de
+  verdad (cierra el funnel de punta a punta); (b) alternativa de cobertura de máximo gap:
+  empezar `frangels/orchestrator.py` (17%) con mocks httpx de providers — es el mayor
+  hueco restante en frangels/; o `google_calendar.py` con mock de la Google API. (c)
+  arrancar el ratchet mypy activando `disallow_untyped_defs` en un subpaquete.
+
+---
+
 ## 2026-07-10 — Ciclo 5 (funnel register→login testeado · auth.py 0→100% · cobertura 43.11→44.60% · gate 41→43)
 
 **Contexto:** Ciclo 4 dejó `make verify` 100% verde con siguiente paso subir cobertura
