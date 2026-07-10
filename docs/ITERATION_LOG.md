@@ -16,6 +16,68 @@
 
 ---
 
+## 2026-07-10 — Ciclo 7 (frangels/orchestrator 17→100% · cobertura 45.51→48.99% · gate 44→47)
+
+**Contexto:** Ciclo 6 dejó `make verify` 100% verde (537 pass en tests/, cov 45.51%,
+hito v0.2=45% alcanzado en medición real) con dos DECISIONES PENDIENTES para Jessicache,
+**ambas bloqueadas para trabajo autónomo**: (1) bug bcrypt del funnel (tocar `uv.lock` =
+riesgo de arrastre, requiere aprobación), (2) frontend `/register` (feature nueva + QA
+humano, no verificable por `make verify`). Con la prioridad #1 (rojo→verde) satisfecha y
+ambos unblocks pendientes, la tarea de máximo valor autónomo-segura es la prioridad #3
+(cobertura) — y era el "Mañana (b)" explícito de Ciclo 6. `frangels/orchestrator.py`
+(289 stmts, 17%) era el mayor gap restante en frangels/ y uno de los dos mayores del
+proyecto; frontera externa **única** (`httpx.AsyncClient`), colaboradores
+(`provider_store`, `quota_manager`) inyectables → 100% mockeable sin red/DB. Se descartó
+`google_calendar.py` (13%) por depender de las librerías cliente de Google (frontera más
+frágil). Un commit de test + un ratchet de gate, verify-verde, reversible. No se tocó
+ninguna DECISIÓN PENDIENTE ni infra.
+
+- **Hecho:**
+  - `test(cov)`: `tests/test_frangels_orchestrator_codex.py` (62 tests) para
+    `FrangelsOrchestrator`. Aislamiento: `_make_orch()` sustituye `provider_store` y
+    `quota_manager` por `MagicMock`; `_get_client` parcheado con `AsyncMock` que devuelve
+    un cliente falso cuyos `get/post/head` son `AsyncMock` → `_FakeResponse(status_code,
+    json())`. `select_angel` (núcleo de lógica pura) se ejercita contra un `ANGEL_REGISTRY`
+    reducido y determinista (`_patch_registry`) para aseverar filtros
+    categoría/key/cuota/privacidad/vision/tools/min_context, orden tier→salud→latencia,
+    `reasoning` y `fallbacks[1:4]` sin depender del registro real. Rutas HTTP
+    (`test_provider` + `_test_*`, `chat` + `_chat_*`, paid providers openai/anthropic con
+    split de system-message y cálculo de coste, singleton) con los ids reales
+    (groq/gemini/deepseek/cohere/mistral/openrouter + genérico huggingface). Fixture
+    autouse resetea el singleton del módulo y restaura `angel.health` del registro real
+    (que `test_provider` muta) → tests order-independent. Módulo: **17% → 100%**
+    (289 stmts, 0 sin cubrir).
+  - `chore(cov)`: ratchet gate `make cov` **44% → 47%** (medido 48.99%, margen ~2 pt;
+    suite determinista sin red/DB/tiempo). Actualizado comentario+nota del target en
+    `Makefile` y cabecera+histórico+fila `frangels/` de `docs/COVERAGE_ROADMAP.md`
+    (45.51→48.99%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**599 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**48.99%** ≥ gate 47%, era 45.51%/gate 44). +3.48 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7
+  rebrand). Mayores gaps de cobertura restantes: `google_calendar.py` (13%, 240 stmts),
+  `osascript.py` (24%, macOS-specific), `frangels/orchestrator` ya cerrado. El ratchet de
+  mypy hacia `strict=true` sigue vivo (mejora, no bloquea).
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura del mayor gap
+  restante: `google_calendar.py` (13%) con mock de la Google API (googleapiclient /
+  flujo OAuth stubbeado) — 208 stmts sin cubrir, el mayor salto disponible. (c) arrancar
+  el ratchet mypy activando `disallow_untyped_defs` en un subpaquete pequeño (p.ej.
+  `app/services/frangels/`, ya al ~99% de cobertura).
+
+---
+
 ## 2026-07-10 — Ciclo 6 (prompt_store 63→95% · cobertura 44.60→45.51% · **hito v0.2 = 45% ALCANZADO en medición real** · gate 43→44)
 
 **Contexto:** Ciclo 5 dejó `make verify` 100% verde (512 pass, cov 44.60%) con dos
