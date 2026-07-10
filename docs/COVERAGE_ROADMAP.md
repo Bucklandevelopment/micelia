@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-10 — **51.93%** sobre 6.908 statements en `app/`. Gate `make cov` = **49%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → **51.93%** (Ciclo 8: `google_calendar.py` 13→98% — OAuth/creds + CRUD calendars/events + sync bidireccional con mocks de Flow/Credentials/build + PromptStore)
+**Última medición**: 2026-07-11 — **53.31%** sobre 6.908 statements en `app/`. Gate `make cov` = **51%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → 51.93% (Ciclo 8, gate 49%: `google_calendar.py` 13→98%) → **53.31%** (Ciclo 9: `event_bus.py` 0→100% — connect/disconnect + publish + subscribe/unsubscribe + _listen + publishers de conveniencia con mock de `redis.asyncio` pub/sub)
 
 ---
 
