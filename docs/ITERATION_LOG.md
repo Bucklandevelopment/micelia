@@ -16,6 +16,74 @@
 
 ---
 
+## 2026-07-10 — Ciclo 5 (funnel register→login testeado · auth.py 0→100% · cobertura 43.11→44.60% · gate 41→43)
+
+**Contexto:** Ciclo 4 dejó `make verify` 100% verde con siguiente paso subir cobertura
+hacia el hito v0.2 = 45%. La tarea reitera el objetivo #5 (funnel **register → login →
+micelia**, subdominios de idmmortality.com, para la iteración inicial de marketing).
+Reconocimiento encontró una convergencia fuerte entre prioridad #3 (cobertura) y ese
+objetivo: el **backend del funnel está completo** (`POST /auth/register`, `/login`,
+`/refresh`, `/me`, `/setup` en `app/api/v1/auth.py`; `UserModel`; `UserStore`) pero el
+router del funnel tenía **cero tests de endpoint** — el `test_app` compartido en
+`tests/conftest.py` ni siquiera monta `auth.router` ni fija `app.state.user_store`, y
+`tests/test_auth.py` sólo cubre la auth por API-key de endpoints protegidos, no el
+funnel. Testear ese router sube cobertura Y verifica el camino register→login del que
+depende el marketing. Un solo commit de test, verify-verde, reversible. El hueco del
+**frontend** (no hay página `/register`) queda como DECISIÓN PENDIENTE (fuera de alcance
+autónomo seguro: feature nueva, QA humano, no verificable por `make verify`).
+
+- **Hecho:**
+  - `test(cov)`: `tests/test_auth_endpoints_codex.py` (17 tests) para el router funnel
+    `app/api/v1/auth.py`. App mínima aislada que monta sólo `auth.router` e inyecta un
+    `user_store` fake (AsyncMock); `httpx.AsyncClient` + `ASGITransport`. Cubre TODAS las
+    ramas: register (201 auto-login, 409 duplicado, 503 sin store, 422 validadores
+    email/password, normalización email), login (usuario registrado OK + `touch_last_login`,
+    403 cuenta inactiva, fallback admin `.env`, 401 inválido, rama sin store), refresh
+    (par válido, 401 tipo incorrecto, 401 JWTError), `/me` (parseo identidad con/sin `:`),
+    `/setup` (403 ya configurado, 200 primera vez + mutación de settings). `jwt_auth`
+    (jose) corre real; `audit_logger` no-op (event_store=None). Frontera cripto
+    (`pwd_context.hash/verify`) stubbeada de forma determinista — obligatorio, ver
+    DECISIÓN PENDIENTE bcrypt. Módulo: **0% → 100%** (91 statements, 0 sin cubrir).
+  - `chore(cov)`: ratchet gate `make cov` **41% → 43%** (medido 44.60%, margen 1.60 pt;
+    suites deterministas sin red/DB/tiempo). Actualizado el comentario+nota del target en
+    `Makefile` y la cabecera+histórico de `docs/COVERAGE_ROADMAP.md` (43.11→44.60%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ · typecheck ✓ (0 errores) · test ✓
+  (**512 pass** + 2 skip; eran 495) · cov ✓ (**44.60%** ≥ gate 43%, era 43.11%/gate 41).
+  +1.49 pts. Hito v0.2 = 45% alcanzado en display (medido 44.60%, redondea a 45%). No se
+  arrancó nada (ni gateway ni infra); sin procesos residuales; árbol limpio (2 commits
+  atómicos).
+
+- **DECISIÓN PENDIENTE (Jessicache) — bug real del funnel (bcrypt):** el venv actual trae
+  **bcrypt 5.0.0 con passlib 1.7.4**, incompatibles: `pwd_context.hash()/verify()` lanzan
+  `ValueError: password cannot be longer than 72 bytes` en la primera llamada (la sonda
+  `detect_wrap_bug` de passlib peta con bcrypt ≥5). Consecuencia: **`POST /auth/register` y
+  el login de usuario registrado darían 500 en runtime** en este entorno — el funnel de
+  registro está roto. Ningún test lo ejercía antes, por eso pasó inadvertido. No lo arreglo
+  autónomamente (bajar dependencia = cambio de `uv.lock` con riesgo de arrastre, sin
+  supervisión). Recomendación: fijar `bcrypt<5` (p.ej. `bcrypt==4.0.1`, compatible con
+  passlib 1.7.4) o migrar a `bcrypt` directo. Los tests de este ciclo stubbean la frontera
+  cripto para probar la lógica del endpoint con independencia de este bug.
+
+- **DECISIÓN PENDIENTE (Jessicache) — frontend del funnel:** backend del funnel completo,
+  pero el frontend Next.js (`micelia/frontend`) NO tiene página `/register` ni método
+  `authApi.register` (`src/lib/api.ts`); el formulario de login usa **username** mientras el
+  modelo indexa por **email** (elección de contrato UX); `/register` habría que añadirlo a
+  `PUBLIC_PATHS` en `src/middleware.ts`. Es feature nueva, con QA humano y no verificable por
+  `make verify` → no se construye autónomamente; se decide cuándo abordarla.
+
+- **Bloqueado/pendiente:** viva aún el ratchet de mypy (rearmar flags relajados uno a uno
+  hacia `strict=true`; no bloquea, es mejora). Dir legacy `vital-core/docs/` sigue en el
+  árbol (DoD §7 rebrand). Cobertura a 0.40 pts del 45.00% literal.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` + `uv lock`)
+  y añadir un test de integración real de register/login que ejercite `pwd_context` de
+  verdad — cierra el funnel de punta a punta; (b) alternativa de cobertura: `prompt_store.py`
+  (63%, ~72 stmts sin cubrir, patrón CRUD ya probado) para pasar el 45.00% literal, o empezar
+  `frangels/orchestrator.py` (17%, 289 stmts) con mocks httpx.
+
+---
+
 ## 2026-07-10 — Ciclo 4 (cobertura 39% → 43% · dos módulos puros a ~100% · gate 37→41)
 
 **Contexto:** Ciclo 3 dejó `make verify` 100% verde y como siguiente paso subir
