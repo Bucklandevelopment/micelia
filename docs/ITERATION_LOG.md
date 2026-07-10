@@ -16,6 +16,70 @@
 
 ---
 
+## 2026-07-11 — Ciclo 9 (event_bus 0→100% · cobertura 51.93→53.31% · gate 49→51)
+
+**Contexto:** Ciclo 8 dejó `make verify` 100% verde (644 pass, cov 51.93%, gate 49%) con
+las dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**:
+(1) bug bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación),
+(2) frontend `/register` (feature nueva + QA humano, no verificable por `make verify`).
+Con la prioridad #1 (rojo→verde) satisfecha desde Ciclo 3 y ambos unblocks pendientes, la
+tarea de máximo valor autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)"
+explícito de Ciclo 8. `event_bus.py` (96 stmts, 0%) era el mayor gap **limpio** restante:
+el bus Redis Pub/Sub del orquestador, con una única frontera externa (`redis.asyncio`) →
+100% aislable sin red/DB. Un commit de test + un ratchet de gate + log, verify-verde,
+reversible. No se tocó ninguna DECISIÓN PENDIENTE ni infra; nada arrancado.
+
+- **Hecho:**
+  - `test(cov)` (`6b3908c`): `tests/test_event_bus_codex.py` (24 tests) para `EventBus`.
+    Aislamiento: helper `_make_client()` arma un cliente `MagicMock` con `AsyncMock`
+    ping/publish/close y `pubsub()` → PubSub mock (subscribe/unsubscribe/close `AsyncMock`,
+    `listen` scriptable); `_connected_bus()` parchea `event_bus.redis.from_url` y corre
+    `connect`. `_listen` se ejercita **directo** (no vía la task de fondo) apuntando
+    `pubsub.listen()` a un async generator (`_aiter`/`_araise`) de mensajes escritos, así
+    el `async for` termina determinista sin bucle real. Cubre: `connect` (happy + ping
+    falla→not connected), `disconnect` (con task viva cancel+CancelledError tragada +
+    pubsub/redis close; y todo-None no-op), `publish` (desconectado→descarta / happy con
+    metadata timestamp+channel+data / except tragado), `subscribe` (canal nuevo suscribe +
+    arranca listener / canal existente añade sin re-suscribir / task viva no se re-arranca),
+    `unsubscribe` (callback específico mantiene otros / último→del+unsubscribe / todos
+    (`callback=None`) / canal desconocido no-op), `_listen` (JSON válido→callbacks async y
+    sync vía `iscoroutinefunction`, JSON inválido→`{"raw":...}`, tipo != message ignorado,
+    callback que lanza→logueado y sigue, `CancelledError`→salida limpia, excepción
+    genérica→logueada), los 4 publishers de conveniencia (health/education/security/system
+    delegan en `publish` con `CHANNELS[...]` y mezclan `{"type",**data}`), y forma de
+    `CHANNELS`. Módulo: **0% → 100%** (96 stmts, 0 sin cubrir).
+  - `chore(cov)` (`b5ada8b`): ratchet gate `make cov` **49% → 51%** (medido 53.31%, margen
+    ~2.3 pt; suite determinista sin red/DB/tiempo). Actualizado comentario+nota del target
+    en `Makefile` y cabecera+histórico de `docs/COVERAGE_ROADMAP.md` (51.93→53.31%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**668 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**53.31%** ≥ gate 51%, era 51.93%/gate 49). +1.38 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+  Mayores gaps de cobertura restantes, todos aún limpios/mockeables: `markdown_sync.py`
+  (0%, 276 stmts, file I/O + parsing), `mcp_generator.py` (0%, 179 stmts, codegen),
+  `entire_session.py` (0%, 79 stmts), `osascript.py` (24%, 318 stmts, macOS-specific —
+  poco portable a CI Linux). El ratchet de mypy hacia `strict=true`
+  (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura: `markdown_sync.py`
+  (0%, 276 stmts) — es el mayor gap **limpio** restante (file I/O + parsing de markdown,
+  aislable con `tmp_path` + mocks del store, patrón ya probado en google_calendar). (c)
+  arrancar el ratchet mypy activando `disallow_untyped_defs` en `app/services/frangels/`
+  (ya al ~99% de cobertura).
+
+---
+
 ## 2026-07-10 — Ciclo 8 (google_calendar 13→98% · cobertura 48.99→51.93% · gate 47→49)
 
 **Contexto:** Ciclo 7 dejó `make verify` 100% verde (599 pass, cov 48.99%, gate 47%)
