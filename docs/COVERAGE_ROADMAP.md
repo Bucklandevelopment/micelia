@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-10 — **44.60%** sobre 6.908 statements en `app/`. Gate `make cov` = **43%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → **44.60%** (Ciclo 5: router funnel `app/api/v1/auth.py` 0→100%; hito v0.2 = 45% alcanzado en display, medido 44.60%)
+**Última medición**: 2026-07-10 — **45.51%** sobre 6.908 statements en `app/`. Gate `make cov` = **44%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → **45.51%** (Ciclo 6: `prompt_store.py` 63→95% — lists/promote/inbox; **hito v0.2 = 45% ALCANZADO en medición real**)
 
 ---
 
@@ -33,7 +33,7 @@ Módulos críticos del orquestador identificados con baja cobertura. Cada uno re
 |---|---|---|
 | `app/services/agents/` | Sistema multi-agente. Crítico operativamente, suite E2E no lo toca | ✅ crew_manager + agent_definitions + workflows (Ciclo 1), workflow_engine 81% (Ciclo 2), prompt_os_agents 98% (Ciclo 4). Módulo cubierto |
 | `app/services/frangels/` | Orquestación de providers IA. Crítico para AI sovereignty | ✅ policy_engine 100%, quota_manager 96%, angels 97% (Ciclo 2), provider_store 100% (Ciclo 4). Pendiente: orchestrator (17%) con mocks de providers |
-| `app/services/prompt_*` | Pipeline completo de prompts (store, agent, executor, scheduler) | Tests de happy path por cada etapa del pipeline |
+| `app/services/prompt_*` | Pipeline completo de prompts (store, agent, executor, scheduler) | ✅ executor 100%, scheduler 99%, agent 98% (Ciclos previos), store 95% (Ciclo 6: lists/promote/inbox/close; solo `initialize` DB-setup sin cubrir). Pipeline cubierto |
 | `app/api/v1/ai.py` | Endpoint integración modelos. Tocado tangencialmente por T3.1 | Tests directos de cada endpoint con mocks de proveedor |
 | `app/api/v1/prompts.py` | API de prompts. No cubierta por E2E | Tests CRUD básicos |
 
