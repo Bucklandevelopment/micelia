@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-10 — **43.11%** sobre 6.908 statements en `app/`. Gate `make cov` = **41%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → **43.11%** (Ciclo 4: PromptOSAgentRunner 0→98%, ProviderStore 33→100%)
+**Última medición**: 2026-07-10 — **44.60%** sobre 6.908 statements en `app/`. Gate `make cov` = **43%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → **44.60%** (Ciclo 5: router funnel `app/api/v1/auth.py` 0→100%; hito v0.2 = 45% alcanzado en display, medido 44.60%)
 
 ---
 
