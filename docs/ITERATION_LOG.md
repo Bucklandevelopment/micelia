@@ -16,6 +16,59 @@
 
 ---
 
+## 2026-07-10 — Ciclo 4 (cobertura 39% → 43% · dos módulos puros a ~100% · gate 37→41)
+
+**Contexto:** Ciclo 3 dejó `make verify` 100% verde y como siguiente paso subir
+cobertura hacia el objetivo v0.2 = 45%. Al orientarme encontré un test SIN commitear
+en el árbol (`tests/test_prompt_os_agents_codex.py`, 23 tests) que cubría justo el
+pendiente `prompt_os_agents` del COVERAGE_ROADMAP para `agents/`. Se validó (pasa,
+0%→98%) y se commiteó. Prioridad #1 (rojo→verde) ya satisfecha; la tarea de máximo
+valor desbloqueada es la #3 (cobertura). Reconocimiento eligió el siguiente módulo
+más puro sin cubrir: `frangels/provider_store.py` (33%, misma frontera JSON/tmp_path
+que quota_manager ya testeado). No se tocó ninguna decisión pendiente ni infra.
+
+- **Hecho:**
+  - `test(cov)` (`0ecd270`): `tests/test_prompt_os_agents_codex.py` (23 tests) —
+    valida y committea el test que estaba en el working tree para
+    `app/services/agents/prompt_os_agents.py`. Cubre los 4 agentes de Prompt OS
+    (ingest/taxonomy/archivist/builder) + `_extract_json`; única frontera =
+    `FrangelsOrchestrator` inyectado como `AsyncMock`. Módulo: **0% → 98%**.
+  - `test(cov)` (`5f7a8a8`): `tests/test_provider_store_codex.py` (30 tests) para
+    `app/services/frangels/provider_store.py`. Frontera = fichero encriptado
+    `providers.enc` bajo `tmp_path` con Fernet real (round-trip genuino, no mock de
+    cripto). Cubre `ProviderCredential.__post_init__`, `_load` (missing/round-trip/
+    corrupt), rama de excepción de `_save` (write_bytes → OSError tragado),
+    get/get_api_key, set (create+update), delete/enable/disable/mark_used
+    (present+absent), list_configured/get_all_status, export_to_env y sync_from_env
+    (ANGEL_REGISTRY real: groq + kaggle con extra_key) y el singleton.
+    Módulo: **33% → 100%**.
+  - `chore(cov)` (`73f6a57`): ratchet gate `make cov` **37% → 41%** (medido 43.11%,
+    ~2 pts de margen, mismo criterio que Ciclo 3). Actualizada la nota del target,
+    la cabecera de COVERAGE_ROADMAP.md (29.37%→43.11%) y la tabla de módulos:
+    `agents/` cubierto, `frangels/provider_store` hecho; queda `frangels/orchestrator`
+    (17%) como pendiente.
+
+- **Verify:** **`make verify` VERDE COMPLETO** — lint ✓ · typecheck ✓ (0 errores) ·
+  test ✓ (**495 pass** + 2 skip; eran 465) · cov ✓ (**43.11%** ≥ gate 41%, era
+  39.06%/gate 37). +4.05 pts de cobertura. Nada arrancado (ni gateway ni infra);
+  sin procesos residuales; árbol limpio (3 commits atómicos).
+
+- **DECISIÓN PENDIENTE:** ninguna nueva. Sigue viva la del ratchet mypy (re-endurecer
+  flags relajados de uno en uno hacia `strict=true`) — no bloquea nada, es mejora.
+
+- **Bloqueado/pendiente:** falta ~1.9 pts para el objetivo v0.2 = 45%. Siguiente mejor
+  objetivo por pureza/tamaño: `frangels/orchestrator.py` (17%, 289 stmts — el mayor
+  gap restante en frangels/, pero requiere mockear providers httpx) o
+  `prompt_store.py` (63%, 72 stmts sin cubrir, patrón CRUD ya conocido). Directorio
+  legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand, sin resolver).
+
+- **Mañana:** cerrar el objetivo v0.2 = 45% con `prompt_store.py` (patrón CRUD ya
+  probado en skills_manager/quota_manager, sube ~1 pt limpio) y/o empezar
+  `frangels/orchestrator.py` con mocks de providers. Alternativa de igual valor:
+  arrancar el ratchet mypy activando `disallow_untyped_defs` en un subpaquete.
+
+---
+
 ## 2026-07-07 — Ciclo 3 (verify 100% VERDE por primera vez · 3 decisiones desbloqueadas)
 
 **Contexto:** Jessicache autorizó las 3 DECISIONES PENDIENTES ("adelante los tres").
