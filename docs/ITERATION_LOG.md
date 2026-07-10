@@ -16,6 +16,73 @@
 
 ---
 
+## 2026-07-10 — Ciclo 8 (google_calendar 13→98% · cobertura 48.99→51.93% · gate 47→49)
+
+**Contexto:** Ciclo 7 dejó `make verify` 100% verde (599 pass, cov 48.99%, gate 47%)
+con las dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**:
+(1) bug bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación),
+(2) frontend `/register` (feature nueva + QA humano, no verificable por `make verify`).
+Con la prioridad #1 (rojo→verde) satisfecha y ambos unblocks pendientes, la tarea de
+máximo valor autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)"
+explícito de Ciclo 7. `google_calendar.py` (240 stmts, 13%) era el mayor gap restante:
+frontera externa doble pero 100% aislable — las libs de Google (`Flow`/`Credentials`/
+`build`) importadas bajo `try/except`+flag, `TOKEN_PATH` (file I/O) y `PromptStore`
+(import lazy en los sync). Un commit de test + un ratchet de gate + log, verify-verde,
+reversible. No se tocó ninguna DECISIÓN PENDIENTE ni infra.
+
+- **Hecho:**
+  - `test(cov)`: `tests/test_google_calendar_codex.py` (45 tests) para
+    `GoogleCalendarService`. Aislamiento: fixture autouse redirige `gc.TOKEN_PATH` a
+    `tmp_path` y resetea el singleton `gc._google_calendar` (order-independence); helper
+    `_svc(...)` arma un `MagicMock` con las cadenas `calendarList()/events().list()/
+    insert().execute` preconfiguradas (`asyncio.to_thread(fn)` ejecuta el mock y devuelve
+    su valor); `_FakeCreds` para los happy-paths de auth (con sentinel `_UNSET` para poder
+    testear el fallback `scopes → SCOPES`); `_patched_store()` parchea
+    `app.services.prompt_store.PromptStore` con métodos `AsyncMock`. Cubre: `authenticate`
+    (guard libs-off/creds-missing/happy/except), `handle_callback` (libs-off/happy con
+    escritura de token+build/expiry None y set/except), `is_connected` (creds cacheadas/
+    sin file/file→_load/_load raises→False), `_load_credentials` (libs-off/no-file/happy/
+    rama refresh — google-auth SÍ está instalado en el venv, `Request` real/error→reset),
+    `_save_credentials` (no-creds/happy/write-error), `_ensure_service`, `list_calendars`,
+    `get_events` (ventana default/explícita, `dateTime` vs `date`, except), `create_event`
+    (validaciones/happy/except), `sync_prompts_from_calendar` (crea/skip-sin-tag/
+    skip-ya-synced/content-vacío→description/parse scheduled_at ok+malo/except+close),
+    `sync_results_to_calendar` (crea+marca/skip sin output+ya-synced+sin completed_at/
+    completed_at malo→now/except+close), `disconnect` (con/sin file/unlink-error),
+    `get_status`, singleton. Módulo: **13% → 98%** (240 stmts; única franja sin cubrir:
+    24-28, el `except ImportError` de import de las libs de Google — inalcanzable con las
+    libs instaladas, sin valor mockear).
+  - `chore(cov)`: ratchet gate `make cov` **47% → 49%** (medido 51.93%, margen ~2.9 pt;
+    suite determinista sin red/DB/tiempo). Actualizado comentario+nota del target en
+    `Makefile` y cabecera+histórico+fila `google_calendar` de `docs/COVERAGE_ROADMAP.md`
+    (48.99→51.93%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**644 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**51.93%** ≥ gate 49%, era 48.99%/gate 47). +2.94 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7
+  rebrand). Mayores gaps de cobertura restantes: `osascript.py` (24%, 318 stmts,
+  macOS-specific — poco portable a CI Linux), `event_bus.py` (0%, 96 stmts, requiere
+  mock de Redis pub/sub), `markdown_sync.py` / `mcp_generator.py` (0%, file I/O + gen de
+  código). El ratchet de mypy hacia `strict=true` (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura: `event_bus.py`
+  (0%, 96 stmts) con mock de Redis (`redis.asyncio` stubbeado) — salto limpio y de valor
+  operativo (es el bus de eventos del orquestador). (c) arrancar el ratchet mypy activando
+  `disallow_untyped_defs` en `app/services/frangels/` (ya al ~99% de cobertura).
+
+---
+
 ## 2026-07-10 — Ciclo 7 (frangels/orchestrator 17→100% · cobertura 45.51→48.99% · gate 44→47)
 
 **Contexto:** Ciclo 6 dejó `make verify` 100% verde (537 pass en tests/, cov 45.51%,
