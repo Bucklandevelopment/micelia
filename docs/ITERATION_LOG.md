@@ -16,6 +16,68 @@
 
 ---
 
+## 2026-07-11 — Ciclo 14 (user_store 88→100% + prompt_store 95→100% · cobertura 61.62→61.87% · gate 60→61)
+
+**Contexto:** Ciclo 13 dejó `make verify` 100% verde (778 pass, cov 61.62%, gate 60%). Este ciclo
+**Jessicache está presente** y toma dos decisiones que cambian el rumbo: (1) **nuevo protocolo** —
+cada rutina debe cerrar IMPLEMENTADA (no solo un plan) + línea de estado `IMPLEMENTADO ✅`/`⛔` en
+el log (añadido a `DAILY_MICELIA_PLANNING.md` §Definition of done); (2) **secuencia B→A**: hoy la
+tarea segura de cobertura (Opción B) y el **próximo ciclo desbloquea el funnel (Opción A), con
+aprobación explícita para tocar `uv.lock`** → la **DECISIÓN PENDIENTE #1 (bcrypt) queda
+DESBLOQUEADA** para el Ciclo 15. Opción B de hoy: los dos gaps "limpios" pequeños que quedaban
+(`user_store.py` 88%, `prompt_store.py` 95%) comparten el *mismo* hueco — su `initialize()` DB-setup
+(`create_async_engine`+`async_sessionmaker`+`engine.begin().run_sync(create_all)`), `close()` y el
+guard de sesión — cerrable con **una sola técnica de mock** sin Postgres real. Un commit de tests +
+un ratchet de gate + log, verify-verde, reversible. Nada arrancado.
+
+- **Hecho:**
+  - `test(cov)`: +6 tests. En `tests/test_user_store_codex.py` (sección `initialize/close/_session
+    guard`): `initialize` con `create_async_engine`/`async_sessionmaker` monkeypatched a fakes
+    (engine con `begin()` async-CM que yield-ea un `conn` con `run_sync` `AsyncMock`) → asserta
+    `store.engine`/`store.async_session` seteados, url propagada y `run_sync` llamado con
+    `Base.metadata.create_all`; `close()` con engine (`dispose` awaited) y sin engine (no-op);
+    guard `_session()` sin inicializar → `RuntimeError`. En `tests/test_prompt_store_codex.py`
+    (`TestInitialize`): mismo happy-path + rama `except`→re-raise (`create_async_engine`
+    `side_effect=RuntimeError`). Módulos: `user_store.py` **88%→100%** (64 stmts), `prompt_store.py`
+    **95%→100%** (197 stmts).
+  - `chore(cov)`: ratchet gate `make cov` **60%→61%** (medido **61.87%**, margen ~0.87 pt; suite
+    determinista sin red/DB). Actualizado comentario+nota del target en `Makefile` y
+    cabecera+histórico+filas de módulos (`prompt_*`, nueva `user_store`) de `docs/COVERAGE_ROADMAP.md`.
+  - `docs(protocolo)`: `DAILY_MICELIA_PLANNING.md` §Definition of done — regla "IMPLEMENTADO" +
+    línea de estado por entrada (petición de Jessicache).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**784 pass** + 2 skip; incluye sdk/python/tests/) · cov ✓
+  (**61.87%** ≥ gate 61%, era 61.62%/gate 60). +0.25 pts. No se arrancó nada (ni gateway ni infra);
+  sin procesos residuales.
+  Nota: Pyright (IDE) marca args sin uso en los fakes (`*a/**k`, `**_kwargs`) — **no afecta al gate**
+  (`make typecheck` = `mypy app/`, no toca `tests/`; ruff E/F/I/N/W no audita args sin uso). Patrón
+  heredado de tests `_codex` previos.
+
+- **DECISIÓN PENDIENTE (Jessicache):**
+  (1) **bug bcrypt del funnel** — **DESBLOQUEADA hoy**: aprobado fijar `bcrypt<5` (`4.0.1`) + `uv
+  lock`. Se ejecuta en Ciclo 15 (Opción A), no en este ciclo (que era la Opción B segura).
+  (2) **hosting + DNS + TLS de `*.idmmortality.com`** (Hito 3 del deploy) — sigue siendo decisión
+  solo de Jessicache; preparable por la tarea, no ejecutable (guardarraíl: sin push/secretos/infra).
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand). Gaps de
+  cobertura restantes: `osascript.py` (24%, macOS-specific, no portable a CI Linux), `security.py`
+  (rate limiter saltado en E2E), APIs `v1/prompts.py`/`v1/ai.py`. El ratchet mypy hacia `strict`
+  (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana (Ciclo 15 = Opción A, APROBADA):** desbloquear el funnel register/login →
+  (1) fix bcrypt: fijar `bcrypt==4.0.1` en `pyproject.toml` + `uv lock` + confirmar que
+  `pwd_context.hash()` deja de dar 500 en runtime; (2) test de integración real
+  `POST /auth/register`→`POST /auth/login`; (3) frontend `register/page.tsx` (clon de
+  `login/page.tsx`) + wire login↔register + `make frontend-lint` (QA humano posterior).
+  Estimación a publicar en idmmortality.com: Hito 1 (funnel local) ~1 semana de ciclos, Hito 2
+  (contenedor podman, ya instalado) ~1-2 semanas, Hito 3 (deploy real) ~3-5 semanas dominado por
+  cuándo Jessicache decida hosting+DNS.
+
+- **Estado:** **IMPLEMENTADO ✅** (Opción B ejecutada + `make verify` verde; 3 commits atómicos).
+
+---
+
 ## 2026-07-11 — Ciclo 13 (workflow_engine 81→100% · cobertura 61.05→61.62% · gate 59→60)
 
 **Contexto:** Ciclo 12 dejó `make verify` 100% verde (768 pass, cov 61.05%, gate 59%) con las
