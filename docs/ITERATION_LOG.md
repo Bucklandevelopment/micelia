@@ -16,6 +16,77 @@
 
 ---
 
+## 2026-07-11 — Ciclo 11 (mcp_generator 0→100% · cobertura 57.31→59.90% · gate 55→57)
+
+**Contexto:** Ciclo 10 dejó `make verify` 100% verde (701 pass, cov 57.31%, gate 55%) con
+las dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**:
+(1) bug bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación),
+(2) frontend `/register` (feature nueva + QA humano, no verificable por `make verify`).
+Con la prioridad #1 (rojo→verde) satisfecha desde Ciclo 3 y ambos unblocks pendientes, la
+tarea de máximo valor autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)"
+explícito de Ciclo 10. `mcp_generator.py` (179 stmts, 0%) era el mayor gap **limpio**
+restante: el generador de servidores MCP (Python/FastMCP + TypeScript/@modelcontextprotocol),
+con dos fronteras externas bien acotadas — file I/O (`output_dir` relativo a cwd) y
+subprocess/signals (`Popen`/`os.killpg`) → 100% aislable sin red/DB. Un commit de test + un
+ratchet de gate + log, verify-verde, reversible. No se tocó ninguna DECISIÓN PENDIENTE ni
+infra; nada arrancado.
+
+- **Hecho:**
+  - `test(cov)` (`a5b5e70`): `tests/test_mcp_generator_codex.py` (39 tests) para
+    `MCPGenerator`. Aislamiento: `_gen(tmp_path, monkeypatch)` hace `monkeypatch.chdir(tmp_path)`
+    **antes** de construir, así el `mkdir` de `__init__` (`data/mcp-servers` relativo a cwd) y
+    todas las escrituras caen en el sandbox de pytest (file I/O real, aserciones con
+    `Path.read_text()`); `_FakeProc` sustituye a `subprocess.Popen` con `poll`/`wait`
+    scriptables (lista de retornos + `wait` que lanza `TimeoutExpired` una vez); `_patch_popen`
+    reemplaza `mg.subprocess.Popen` por una factory que captura `cmd`/`kwargs` (o lanza una
+    excepción); `_patch_signals` parchea `os.getpgid`/`os.killpg` para registrar señales sin
+    tocar procesos reales. Cubre: `generate` python (crea server.py/pyproject/README/metadata,
+    type-map string→str/integer→int/boolean→bool, default con `repr`, tipo desconocido→str,
+    claves de tool ausentes→`unnamed_tool`/`arg`/`No description`) y typescript (server.ts/
+    package.json, zod-map + `.describe`, `json.loads` del package), `generate` unsupported→
+    `ValueError`, metadata.json completo; `list_servers` (dir ausente→[] / sin servers→[] /
+    lee metadata+running / ignora no-dirs / dir sin metadata→skip / metadata ilegible→
+    fallback+warning); `get_server` (not-found→`FileNotFoundError` / metadata+source+files /
+    running=True / lee server.ts en ts / sin metadata→dict mínimo); `delete_server` (ok /
+    not-found / corriendo→`RuntimeError`); `start_server` (spawn+track python cmd / ts→npx /
+    not-found / ya corriendo (poll None)→error / proceso muerto (poll 0)→cleanup+restart /
+    sin metadata→python / `Popen` lanza→`RuntimeError` + no queda en `_running_processes`);
+    `stop_server` (not-running→error / ya muerto (poll≠None)→`already_stopped` / SIGTERM
+    grácil / `TimeoutExpired`→escalada SIGKILL con 2 waits / `ProcessLookupError` tragado);
+    y el singleton `get_mcp_generator`. Módulo: **0% → 100%** (179 stmts, 0 sin cubrir).
+  - `chore(cov)` (`57e5713`): ratchet gate `make cov` **55% → 57%** (medido 59.90%, margen
+    ~2.9 pt; suite determinista sin red/DB/subprocesos reales). Actualizado comentario+nota del
+    target en `Makefile` y cabecera+histórico de `docs/COVERAGE_ROADMAP.md` (57.31→59.90%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**740 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**59.90%** ≥ gate 57%, era 57.31%/gate 55). +2.59 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+  Nota: Pyright (IDE) marca `_FakeProc` no asignable a `Popen` en el test — **no afecta al
+  gate**: `make typecheck` es `mypy app/` (no toca `tests/`) y `make lint` (ruff E/F/I/N/W) no
+  audita args sin uso. Patrón heredado de tests previos que asignan `MagicMock` (tipo `Any`).
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+  Mayores gaps de cobertura restantes, todos aún limpios/mockeables: `entire_session.py`
+  (0%, 79 stmts), `osascript.py` (24%, 318 stmts, macOS-specific — poco portable a CI Linux),
+  `workflow_engine.py` (81%, 40 líneas sin cubrir). El ratchet de mypy hacia `strict=true`
+  (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura: `entire_session.py`
+  (0%, 79 stmts) — es ahora el mayor gap **limpio** restante; alternativa cerrar los 40
+  huecos de `workflow_engine.py` (81%→~100%, ya con andamiaje de tests existente). (c) arrancar
+  el ratchet mypy activando `disallow_untyped_defs` en `app/services/frangels/` (ya al ~99%).
+
+---
+
 ## 2026-07-11 — Ciclo 10 (markdown_sync 0→100% · cobertura 53.31→57.31% · gate 51→55)
 
 **Contexto:** Ciclo 9 dejó `make verify` 100% verde (668 pass, cov 53.31%, gate 51%) con
