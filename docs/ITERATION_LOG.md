@@ -16,6 +16,74 @@
 
 ---
 
+## 2026-07-11 — Ciclo 15 (Opción A APROBADA: funnel register→login desbloqueado · bug bcrypt resuelto · frontend /register)
+
+**Contexto:** Ciclo 14 dejó `make verify` 100% verde (784 pass, cov 61.87%, gate 61%) y marcó
+**hoy = Opción A, APROBADA por Jessicache**: desbloquear el funnel register/login, con permiso
+explícito para tocar `uv.lock`. El bug estaba **confirmado empíricamente** en `.venv`: bcrypt
+**5.0.0** + passlib **1.7.4** → passlib sondea `bcrypt.__about__.__version__` (eliminado en
+bcrypt ≥ 4.1) y el primer `pwd_context.hash()`/`verify()` lanza `ValueError: password cannot be
+longer than 72 bytes`. Es decir `POST /auth/register` y el login de usuarios reales daban **500**
+en runtime — oculto porque `tests/test_auth_endpoints_codex.py` **mockea `pwd_context`**. Riesgo
+de wheel descartado: Python 3.13.5, y bcrypt 4.0.1 publica wheel `cp36-abi3-universal2` (ABI
+estable → 3.13, arm64) → instala sin build desde fuente.
+
+- **Hecho (5 commits atómicos):**
+  - `fix(auth)` (`e68a428`): pin **`bcrypt==4.0.1`** en `pyproject.toml` (última 4.0.x compatible
+    con passlib 1.7.4) + `uv lock` (`uv.lock` bcrypt 5.0.0→4.0.1) + `uv sync --extra dev`.
+    Prueba puntual tras el fix: `pwd_context.hash('…')` → `$2b$12$…` (len 60) y `verify` True/False
+    correctos, sin `ValueError`. **Efecto lateral del sync:** el venv estaba drift-eado por delante
+    del lock (starlette/uvicorn/etc.); `uv sync` lo realineó al lockfile committeado (estado
+    reproducible), verify siguió verde.
+  - `test(auth)` (`e19bed6`): nuevo `tests/test_auth_funnel_integration_codex.py` (+4 tests) que
+    corre **bcrypt de verdad** (sin stub) y drive el round-trip register→login: register almacena
+    un hash `$2b$` real, login lo verifica. **Falla con bcrypt 5.0.0, pasa con 4.0.1** → prueba
+    ejecutable del fix. Sin DB/red: fake stateful de `user_store` en memoria (UserModel usa
+    `PGUUID`, no portable a SQLite; `aiosqlite` no instalado). El autouse `stub_crypto` del otro
+    archivo es local a su módulo → no contamina.
+  - `feat(frontend)` (`9459ec3`): `frontend/src/app/register/page.tsx` (clon de `login/page.tsx`
+    con campo email `type=email`, password min 8 = validador backend, auto-login) + `authApi.register`
+    en `lib/api.ts` (POST `/auth/register`, 409→"Email already registered") + enlaces cruzados
+    login↔register con `next/link`.
+  - `chore(frontend)` (`b51518d`): `frontend/.eslintrc.json` (`next/core-web-vitals`) — `next lint`
+    no tenía config y **colgaba** `make frontend-lint` con un prompt interactivo. Escapadas las 2
+    únicas incidencias preexistentes (comillas en `QuotaMonitor.tsx`). `make frontend-lint` ahora
+    corre limpio por primera vez.
+  - `docs(log)`: esta entrada.
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy
+  app/, 0 errores) · test ✓ (**788 pass** + 2 skip, era 784) · cov ✓ (**61.87%** ≥ gate 61%,
+  sin cambio — los 4 tests nuevos ejercitan `auth.py` ya cubierto). **`make frontend-lint` VERDE**
+  (lint ✓ + type-check ✓, antes irrunnable). No se arrancó gateway ni infra; sin procesos residuales.
+
+- **DECISIÓN PENDIENTE (Jessicache):**
+  (1) **bug bcrypt — RESUELTO ✅** este ciclo (pin 4.0.1 + prueba de integración real). Ya no es
+  pendiente.
+  (2) **hosting + DNS + TLS de `*.idmmortality.com`** (Hito 3 deploy) — sigue siendo decisión solo
+  de Jessicache; preparable por la tarea, no ejecutable (guardarraíl: sin push/secretos/infra).
+
+- **Bloqueado/pendiente:**
+  - **QA visual humano del `/register`** — `frontend-lint` valida lint+tipos, no el render; falta
+    prueba visual/e2e del formulario en navegador.
+  - Funnel end-to-end real (register→login contra Postgres) **no** ejercitado aún: requiere
+    `make docker-infra` + `run-local.sh` (Hito 1, mañana).
+  - `UserModel` usa `PGUUID` (no portable a SQLite/CI). Un test de integración con DB real hermética
+    exigiría UUID cross-dialect + `aiosqlite`. No hoy.
+  - dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand). Ratchet mypy hacia `strict` vivo.
+
+- **Mañana (Ciclo 16 = Hito 1, validación local del funnel):** (1) `make docker-infra` (postgres+
+  redis+ollama) + `bash scripts/run-local.sh start`, ejercitar `POST /auth/register`→`/auth/login`
+  reales contra Postgres con `curl`/httpie y confirmar 201→200 (parar todo al terminar). (2) QA
+  visual del `/register` (arrancar `frontend` :3001, registrar un usuario de prueba, verificar
+  auto-login→redirect a `/`). (3) si ambos verdes, empezar Hito 2 (contenedor podman del gateway).
+  Estimación a idmmortality.com: Hito 1 (funnel local e2e) ~días; Hito 2 (podman) ~1-2 semanas;
+  Hito 3 (deploy real) dominado por cuándo Jessicache decida hosting+DNS+TLS.
+
+- **Estado:** **IMPLEMENTADO ✅** (Opción A ejecutada; bug bcrypt resuelto + probado; `make verify`
+  y `make frontend-lint` verdes; 5 commits atómicos).
+
+---
+
 ## 2026-07-11 — Ciclo 14 (user_store 88→100% + prompt_store 95→100% · cobertura 61.62→61.87% · gate 60→61)
 
 **Contexto:** Ciclo 13 dejó `make verify` 100% verde (778 pass, cov 61.62%, gate 60%). Este ciclo
