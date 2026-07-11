@@ -16,6 +16,82 @@
 
 ---
 
+## 2026-07-11 — Ciclo 12 (entire_session 0→100% · cobertura 59.90→61.05% · gate 57→59)
+
+**Contexto:** Ciclo 11 dejó `make verify` 100% verde (740 pass, cov 59.90%, gate 57%) con
+las dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**:
+(1) bug bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación),
+(2) frontend `/register` (feature nueva + QA humano, no verificable por `make verify`).
+Con la prioridad #1 (rojo→verde) satisfecha desde Ciclo 3 y ambos unblocks pendientes, la
+tarea de máximo valor autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)"
+explícito de Ciclo 11. `entire_session.py` (79 stmts, 0%) era el mayor gap **limpio**
+restante: el wrapper del CLI `entire` (trazabilidad de sesiones de agente), con **dos
+fronteras externas bien acotadas** — `shutil.which("entire")` (detección de binario) y
+`asyncio.create_subprocess_exec` (dentro de `_run_entire`) → 100% aislable sin red/DB/
+subprocesos reales. Los otros gaps son peores candidatos: `osascript.py` (24%, macOS-specific,
+poco portable a CI Linux), `workflow_engine.py` (81%, solo ~40 líneas), `user_store.py` (88%,
+8 líneas). Un commit de test + un ratchet de gate + log, verify-verde, reversible. No se tocó
+ninguna DECISIÓN PENDIENTE ni infra; nada arrancado.
+
+- **Hecho:**
+  - `test(cov)`: `tests/test_entire_session_codex.py` (28 tests) para `EntireSessionService`.
+    Aislamiento: fixture autouse resetea el singleton del módulo (`es._entire_service = None`)
+    para independencia de orden; helper `_svc(available=...)` fuerza el cache
+    `_entire_available` sin llamar a `shutil.which` (o se parchea `es.shutil.which` para
+    ejercitar la rama de detección real); `_FakeProc` con `communicate` `AsyncMock`
+    `(stdout, stderr)` y `returncode` scriptables + `_patch_subprocess` que sustituye
+    `es.asyncio.create_subprocess_exec` por una factory que captura el argv (o lanza), de modo
+    que `_run_entire` corre happy/error sin spawnear procesos. Cubre: `is_available`
+    (detecta presente/ausente + cache tras la 1ª sonda), `start_session` (unavailable→solo
+    in-memory sin spawnear / available happy→setea `entire_session_id` desde stdout.strip +
+    argv `idm-<prompt[:8]>` / `_run_entire` lanza→`except` tragado, sesión igual creada /
+    metadata custom preservada / `_trim_sessions` con cap bajado a 2), `checkpoint`
+    (session_id inexistente→no-op / sin `entire_session_id`→solo append / con id+available→
+    llama entire con `--message agent:action` / fallo→tragado, append igual / trunca
+    `output_summary[:500]` / None), `end_session` (inexistente→no-op / happy sin id / status
+    default `completed` / con id→llama `session end` / fallo→tragado), getters (`get_sessions`
+    orden desc + limit/offset, `get_session` present/absent, `get_sessions_for_prompt` filtra
+    + ordena, `get_status` cuenta active/total + `entire_available`), `_run_entire` (rc 0→
+    stdout / rc≠0→`RuntimeError` con stderr), `_trim_sessions` (evicta las más antiguas por
+    `started_at` / bajo cap→no-op) y el singleton `get_entire_service`. Módulo: **0% → 100%**
+    (79 stmts, 0 sin cubrir).
+  - `chore(cov)`: ratchet gate `make cov` **57% → 59%** (medido 61.05%, margen ~2.1 pt;
+    suite determinista sin red/DB/subprocesos reales). Actualizado comentario+nota del target
+    en `Makefile` y cabecera+histórico+tabla de módulos de `docs/COVERAGE_ROADMAP.md`
+    (59.90→61.05%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**768 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**61.05%** ≥ gate 59%, era 59.90%/gate 57). +1.15 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+  Nota: Pyright (IDE) marca args sin uso en fakes y un subscript de `get_session` (Optional)
+  en el test — **no afecta al gate**: `make typecheck` es `mypy app/` (no toca `tests/`) y
+  `make lint` (ruff E/F/I/N/W) no audita args sin uso. Patrón heredado de tests `_codex`
+  previos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+  Mayores gaps de cobertura restantes, cada vez menos "limpios": `osascript.py`
+  (24%, 318 stmts, macOS-specific — poco portable a CI Linux), `workflow_engine.py`
+  (81%, ~40 líneas sin cubrir, ya con andamiaje de tests existente), `user_store.py` (88%,
+  8 líneas), `prompt_store.py` (95%, solo `initialize` DB-setup). El ratchet de mypy hacia
+  `strict=true` (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura: cerrar los ~40 huecos
+  de `workflow_engine.py` (81%→~100%) — es ahora el mayor gap **limpio** restante y ya tiene
+  andamiaje de tests (`test_workflow_engine_codex.py`); alternativa menor `user_store.py`
+  (88%→100%, 8 líneas). (c) arrancar el ratchet mypy activando `disallow_untyped_defs` en
+  `app/services/frangels/` (ya al ~99% de cobertura).
+
+---
+
 ## 2026-07-11 — Ciclo 11 (mcp_generator 0→100% · cobertura 57.31→59.90% · gate 55→57)
 
 **Contexto:** Ciclo 10 dejó `make verify` 100% verde (701 pass, cov 57.31%, gate 55%) con
