@@ -16,6 +16,71 @@
 
 ---
 
+## 2026-07-11 — Ciclo 13 (workflow_engine 81→100% · cobertura 61.05→61.62% · gate 59→60)
+
+**Contexto:** Ciclo 12 dejó `make verify` 100% verde (768 pass, cov 61.05%, gate 59%) con las
+dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**: (1) bug
+bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación), (2) frontend
+`/register` (feature nueva + QA humano, no verificable por `make verify`). Con la prioridad #1
+(rojo→verde) satisfecha desde Ciclo 3 y ambos unblocks pendientes, la tarea de máximo valor
+autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)" explícito de Ciclo 12.
+`workflow_engine.py` (206 stmts, 81%, 40 líneas sin cubrir) era el mayor gap **limpio**
+restante: el motor multi-agente que recorre el grafo de workflows, con **todos los
+colaboradores constructor-injected** (frangels orchestrator, prompt_store, entire_service) →
+100% aislable con `AsyncMock` + workflows custom, sin red/DB/subprocesos. Ya tenía andamiaje
+(`test_workflow_engine_codex.py`, 279 líneas). Un commit de test + un ratchet de gate + log,
+verify-verde, reversible. No se tocó ninguna DECISIÓN PENDIENTE ni infra; nada arrancado.
+
+- **Hecho:**
+  - `test(cov)` (`b49bb66`): +10 tests en `tests/test_workflow_engine_codex.py` (20→30) para
+    las 40 líneas restantes. Ramas del grafo con workflows a medida
+    (`WorkflowDefinition`/`WorkflowStep` inyectados vía `monkeypatch.setitem(WORKFLOWS, ...)`,
+    ya que el engine resuelve por `WORKFLOWS.get(...)`): **agente desconocido** (step con
+    `agent` fuera de `AGENT_DEFINITIONS` → `status=failed` + `"error": "Unknown agent: ..."`,
+    sin llamar a `chat`, líneas 115-125), **`next_on_success` a acción inexistente** (`nope` →
+    `_find_step_index` None → failed, 219-224), **budget de retries agotado** (step que se
+    reapunta a sí mismo con `max_retries=0` → `next_index<=step_index` con `retries<=0` → break
+    tras 1 ejecución, 229-233), **camino de fallo** (`success=False` + `next_on_failure` + 1
+    retry → reintenta por la rama de fallo y completa, 240-246). Rama **critic** (203) vía
+    `full_pipeline` happy path (dos variantes: `requires_patch:false` y `severity:high`, ambas
+    enrutan a patcher). **`except` tragados** de `checkpoint` (191-192) y `end_session`
+    (259-260): `entire_service` `AsyncMock` con `side_effect=RuntimeError` → el run igualmente
+    completa. **Trimming de `_runs`** (`_max_stored_runs=1`, 2 runs → conserva el más reciente,
+    289). **`_build_messages` por acción** (357-445): llamadas directas por `critique`, `patch`,
+    `classify`, `detect_pattern`, `detect_tool_need`, `generate_skill`, `generate_mcp_spec` y el
+    `else` (acción desconocida → prompt crudo), con aserciones sobre marcadores del mensaje
+    `user` e interpolación de `context`. Módulo: **81% → 100%** (206 stmts, 0 sin cubrir).
+  - `chore(cov)` (`d3161e7`): ratchet gate `make cov` **59% → 60%** (medido 61.62%, margen
+    ~1.6 pt; suite determinista). Actualizado comentario+nota del target en `Makefile` y
+    cabecera+histórico+tabla de módulos de `docs/COVERAGE_ROADMAP.md` (61.05→61.62%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**778 pass** + 2 skip; incluye sdk/python/tests/) · cov ✓
+  (**61.62%** ≥ gate 60%, era 61.05%/gate 59). +0.57 pts. No se arrancó nada (ni gateway ni
+  infra); sin procesos residuales; árbol para 3 commits atómicos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature nueva +
+  QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+  Gaps de cobertura restantes, cada vez menos "limpios": `osascript.py` (24%, 318 stmts,
+  macOS-specific — poco portable a CI Linux), `user_store.py` (88%, 8 líneas), `prompt_store.py`
+  (95%, solo `initialize` DB-setup). El ratchet de mypy hacia `strict=true`
+  (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` + `uv lock`) +
+  test de integración real register/login. (b) cobertura: cerrar `user_store.py` (88→100%, 8
+  líneas) — es ahora el mayor gap **limpio** restante de superficie pequeña; alternativa
+  `prompt_store.py` (95→100%, solo `initialize`, requiere mock de DB-setup). (c) arrancar el
+  ratchet mypy activando `disallow_untyped_defs` en `app/services/frangels/` (ya al ~99% de
+  cobertura).
+
+---
+
 ## 2026-07-11 — Ciclo 12 (entire_session 0→100% · cobertura 59.90→61.05% · gate 57→59)
 
 **Contexto:** Ciclo 11 dejó `make verify` 100% verde (740 pass, cov 59.90%, gate 57%) con
