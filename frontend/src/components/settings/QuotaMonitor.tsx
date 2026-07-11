@@ -199,7 +199,7 @@ export function QuotaMonitor() {
           <div className="p-8 text-center text-gray-500">
             <Gauge className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No hay proveedores configurados aun</p>
-            <p className="text-sm mt-1">Configura tus API keys en la pestana "Proveedores Cloud"</p>
+            <p className="text-sm mt-1">Configura tus API keys en la pestana &quot;Proveedores Cloud&quot;</p>
           </div>
         )}
       </div>
