@@ -16,6 +16,61 @@
 
 ---
 
+## 2026-07-12 — Ciclo 16 (cobertura router prompts 0%→93% · fix ruta /prompts/lists oculta · landings APARCADAS)
+
+**Contexto:** Ciclo 15 dejó `make verify` verde (788 pass, cov 61.87%, gate 61%). Prioridad #1
+(red→green) satisfecha → el día cae a prioridad #3 (cobertura hacia el 70%, cadencia de los
+Ciclos 6–14). **DECISIÓN ESTRATÉGICA de Jessicache (hoy): se aparcan las landings.** Los
+subdominios `*.idmmortality.com` (register./login.) tienen hosting **estático en IONOS** con HTML
+de prueba; la idea previa (triple home estática + Stripe micro-donaciones + acceso temporal a
+Micelia vía login) se descarta esta iteración: conectar HTML estático+JS a un proxy es una
+chapuza porque al desplegar Micelia "de verdad" habría que **sincronizar los usuarios ya
+registrados**. Conclusión: *nos olvidamos de landings y preparamos Micelia bien por dentro*. El
+funnel register→login→micelia **deja de ser el próximo hito** (aparcado, no diferido). El trabajo
+`/register`+`/login` ya existente se **conserva** (no se borra), solo se despriorizada su
+exposición pública.
+
+**Hecho (4 commits atómicos):**
+- `fix(api)` (`83e1c8d`): **bug latente encontrado** al escribir los tests — `GET /prompts/lists`
+  (`list_all_lists`) se declaraba DESPUÉS de `GET /{prompt_id}`, así que Starlette hacía match de
+  `"lists"` como `prompt_id` y la validación UUID devolvía **422** → el endpoint de colección era
+  **inalcanzable por HTTP**. Se mueve la ruta estática antes de la dinámica. Sin cambio de lógica;
+  `/lists/{slug}` (2 segmentos) no colisiona y permanece en su sección.
+- `test(api)` (`360307b`): nuevo `tests/test_api_prompts_codex.py` (**+58 tests**). Monta el
+  router sobre un `FastAPI()` local e inyecta un `AsyncMock` `prompt_store` (y agent/executor mock
+  para pipeline) en `app.state`. Cubre CRUD, notes, retry, classify, stage/approve/archive,
+  promote list/skill/mcp, lists CRUD, pipeline status/pause/resume (con y sin componentes),
+  degradación 503 (store `None`) y auth 401. Sin DB/HTTP/subprocess. `prompts.py` **0%→93%**
+  (267 stmts, 18 miss — los guards `if not store` repetidos por endpoint).
+- `chore(cov)` (`6fcc42f`): sube `--cov-fail-under` 61→**65** (medido 65.47%) + nota informativa.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ · typecheck ✓ (mypy app/, 0 errores) · test ✓
+(**846 pass** + 2 skip, era 788) · cov ✓ (**65.47%** ≥ gate 65, era 61.87%). Frontend no tocado
+→ no aplica `frontend-lint`. No se arrancó gateway ni infra; sin procesos residuales.
+
+**Bloqueado/pendiente:**
+- Otros routers `app/api/v1/*` siguen a 0%: `routine.py`, `mcp.py`, `skills.py`, `calendar.py`,
+  `dashboard.py`, `agents.py`, `budget.py`, `tunnel.py`, `audit.py`, `sync.py` — mismo patrón de
+  DI por `app.state`, cubribles sin infra (prioridad #3 hacia el 70% del DoD).
+- `osascript.py` (24%, macOS-only) y `cli.py`/`main.py` — el roadmap los marca "no testear"/E2E.
+
+**DECISIÓN REGISTRADA (Jessicache):**
+- **APARCADO: landings + funnel estático.** No se construyen las home estáticas en IONOS ni la
+  integración Stripe/proxy sobre HTML estático (problema de sincronización de usuarios). Foco:
+  núcleo de Micelia.
+- **`*.idmmortality.com`** como destino de despliegue **de Micelia** (no de landings) sigue siendo
+  decisión futura de Jessicache (hosting + DNS + TLS); preparable, no ejecutable (guardarraíles).
+
+**Mañana (Ciclo 17):** seguir prioridad #3 — cubrir el siguiente router de mayor ganancia a 0%
+(`routine.py` 165 stmts, con su `_parse_routine_md` puro; o `mcp.py`/`skills.py`, ambos con
+servicio backing al 100%), mismo patrón `app.state` + `AsyncMock`, sin tocar infra ni `uv.lock`.
+Emparejar con ratchet del gate. Objetivo DoD: cov ≥ 70%.
+
+**IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-11 — Ciclo 15 (Opción A APROBADA: funnel register→login desbloqueado · bug bcrypt resuelto · frontend /register)
 
 **Contexto:** Ciclo 14 dejó `make verify` 100% verde (784 pass, cov 61.87%, gate 61%) y marcó
