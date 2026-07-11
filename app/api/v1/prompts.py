@@ -162,6 +162,22 @@ async def get_archive(request: Request, limit: int = 50, offset: int = 0):
     return await store.get_archived_prompts(limit, offset)
 
 
+# NOTE: the static "/lists" collection route must be declared *before* the
+# dynamic "/{prompt_id}" route below; otherwise FastAPI matches "lists" as a
+# prompt_id and the UUID validation returns 422, making the endpoint
+# unreachable. "/lists/{slug}" (two segments) does not collide, so it stays in
+# the PROMPT LISTS section further down.
+@router.get("/lists")
+async def list_all_lists(request: Request):
+    """Listar todas las prompt lists"""
+    store = request.app.state.prompt_store
+    if not store:
+        raise HTTPException(503, "Prompt system not available")
+
+    lists = await store.list_all_lists()
+    return {"lists": lists, "count": len(lists)}
+
+
 @router.get("/{prompt_id}")
 async def get_prompt(prompt_id: UUID, request: Request):
     """Obtener detalle de un prompt"""
@@ -369,17 +385,8 @@ async def create_list(data: PromptListCreate, request: Request):
     return {"list_id": str(list_id)}
 
 
-@router.get("/lists")
-async def list_all_lists(request: Request):
-    """Listar todas las prompt lists"""
-    store = request.app.state.prompt_store
-    if not store:
-        raise HTTPException(503, "Prompt system not available")
-
-    lists = await store.list_all_lists()
-    return {"lists": lists, "count": len(lists)}
-
-
+# NOTE: GET "/lists" (collection) is declared earlier, before "/{prompt_id}",
+# to avoid being shadowed by the dynamic route. See that section above.
 @router.get("/lists/{slug}")
 async def get_list(slug: str, request: Request):
     """Obtener detalle de una lista"""
