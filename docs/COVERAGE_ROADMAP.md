@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-11 — **57.31%** sobre 6.908 statements en `app/`. Gate `make cov` = **55%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → 51.93% (Ciclo 8, gate 49%: `google_calendar.py` 13→98%) → 53.31% (Ciclo 9, gate 51%: `event_bus.py` 0→100%) → **57.31%** (Ciclo 10: `markdown_sync.py` 0→100% — sync bidireccional DB↔Markdown: lifecycle + 3 DB→MD + MD→DB + full_sync + parse/build frontmatter, con mocks de `PromptStore` + `tmp_path`)
+**Última medición**: 2026-07-11 — **59.90%** sobre 6.908 statements en `app/`. Gate `make cov` = **57%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → 51.93% (Ciclo 8, gate 49%: `google_calendar.py` 13→98%) → 53.31% (Ciclo 9, gate 51%: `event_bus.py` 0→100%) → 57.31% (Ciclo 10, gate 55%: `markdown_sync.py` 0→100%) → **59.90%** (Ciclo 11: `mcp_generator.py` 0→100% — generador de servidores MCP Python/TypeScript: generate + gestión (list/get/delete) + lifecycle start/stop, con `chdir(tmp_path)` para file I/O real y fakes de `subprocess.Popen`/`os.killpg`)
 
 ---
 
