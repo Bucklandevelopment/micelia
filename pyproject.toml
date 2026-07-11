@@ -70,6 +70,11 @@ dependencies = [
     # Security
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    # bcrypt >=4.1 quitó `__about__.__version__`, que passlib 1.7.4 sondea → el
+    # primer pwd_context.hash()/verify() crashea con "password cannot be longer
+    # than 72 bytes" y register/login dan 500. 4.0.1 (última 4.0.x, wheel
+    # cp36-abi3-universal2 → 3.13/arm64) es la última compatible con passlib 1.7.4.
+    "bcrypt==4.0.1",
 
     # Tunnel
     "pyngrok>=7.0.0",
