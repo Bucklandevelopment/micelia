@@ -1,7 +1,7 @@
 # Cobertura de tests — roadmap
 
 **Versión**: v0.1
-**Última medición**: 2026-07-11 — **59.90%** sobre 6.908 statements en `app/`. Gate `make cov` = **57%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → 51.93% (Ciclo 8, gate 49%: `google_calendar.py` 13→98%) → 53.31% (Ciclo 9, gate 51%: `event_bus.py` 0→100%) → 57.31% (Ciclo 10, gate 55%: `markdown_sync.py` 0→100%) → **59.90%** (Ciclo 11: `mcp_generator.py` 0→100% — generador de servidores MCP Python/TypeScript: generate + gestión (list/get/delete) + lifecycle start/stop, con `chdir(tmp_path)` para file I/O real y fakes de `subprocess.Popen`/`os.killpg`)
+**Última medición**: 2026-07-11 — **61.05%** sobre 6.908 statements en `app/`. Gate `make cov` = **59%**. Histórico: 24.09% (2026-05-24) → 25.28% (Ciclo 1) → 29.37% (Ciclo 2) → 39.06% (Ciclo 3, gate 37%) → 43.11% (Ciclo 4, gate 41%) → 44.60% (Ciclo 5, gate 43%) → 45.51% (Ciclo 6, gate 44%) → 48.99% (Ciclo 7, gate 47%) → 51.93% (Ciclo 8, gate 49%: `google_calendar.py` 13→98%) → 53.31% (Ciclo 9, gate 51%: `event_bus.py` 0→100%) → 57.31% (Ciclo 10, gate 55%: `markdown_sync.py` 0→100%) → 59.90% (Ciclo 11, gate 57%: `mcp_generator.py` 0→100%) → **61.05%** (Ciclo 12: `entire_session.py` 0→100% — wrapper del CLI `entire` para trazabilidad de sesiones de agente: start/checkpoint/end + getters + `_run_entire` + `_trim_sessions`, con fake de `asyncio.create_subprocess_exec` y `shutil.which` parcheado)
 
 ---
 
@@ -45,6 +45,7 @@ Módulos críticos del orquestador identificados con baja cobertura. Cada uno re
 | `app/services/skills_manager.py` | Gestión dinámica de skills | Tests CRUD + activación |
 | ~~`app/services/google_calendar.py`~~ | Integración externa | ✅ 13→98% (Ciclo 8: auth OAuth + load/save creds + calendars/events CRUD + sync bidireccional; mocks Flow/Credentials/build + PromptStore). Solo el fallback `except ImportError` de import queda sin cubrir |
 | `app/services/tunnel.py` | ngrok wrapper | Tests con mock pyngrok |
+| ~~`app/services/entire_session.py`~~ | Wrapper del CLI `entire` (trazabilidad de sesiones) | ✅ 0→100% (Ciclo 12: start/checkpoint/end_session con available on/off + `except`, getters, `_run_entire` rc 0/≠0, `_trim_sessions`, singleton; fake de `create_subprocess_exec` + `shutil.which` parcheado, sin subprocesos reales) |
 | `app/core/security.py` | API key + rate limiting | Tests del rate limiter aún saltados en E2E (T3.2) |
 
 ### Baja prioridad (cobertura indirecta o intencionalmente no testeada)
