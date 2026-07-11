@@ -16,6 +16,77 @@
 
 ---
 
+## 2026-07-11 — Ciclo 10 (markdown_sync 0→100% · cobertura 53.31→57.31% · gate 51→55)
+
+**Contexto:** Ciclo 9 dejó `make verify` 100% verde (668 pass, cov 53.31%, gate 51%) con
+las dos DECISIONES PENDIENTES de siempre, **ambas bloqueadas para trabajo autónomo**:
+(1) bug bcrypt del funnel (tocar `uv.lock` = riesgo de arrastre, requiere aprobación),
+(2) frontend `/register` (feature nueva + QA humano, no verificable por `make verify`).
+Con la prioridad #1 (rojo→verde) satisfecha desde Ciclo 3 y ambos unblocks pendientes, la
+tarea de máximo valor autónomo-segura es la prioridad #3 (cobertura) — y era el "Mañana (b)"
+explícito de Ciclo 9. `markdown_sync.py` (276 stmts, 0%) era el mayor gap **limpio**
+restante: el sync bidireccional DB↔Markdown del orquestador, con una **única frontera
+externa** (`PromptStore`) + file I/O → 100% aislable sin red/DB (los dirs son atributos
+string públicos, redirigibles a `tmp_path`; `utcnow_naive` parcheable). Un commit de test +
+un ratchet de gate + log, verify-verde, reversible. No se tocó ninguna DECISIÓN PENDIENTE ni
+infra; nada arrancado.
+
+- **Hecho:**
+  - `test(cov)` (`0296e69`): `tests/test_markdown_sync_codex.py` (33 tests) para
+    `MarkdownSyncService`. Aislamiento: `_store(**overrides)` arma un `MagicMock` con los 6
+    métodos usados como `AsyncMock` (`list_all_lists`, `get_captured_prompts`,
+    `get_archived_prompts`→`{"prompts":[...]}`, `get_list`, `update_list`, `create_list`);
+    `_svc(tmp_path, store)` construye el servicio y **redirige** `lists_dir/inbox_dir/
+    archive_dir` a subdirs de `tmp_path` (file I/O real contra el sandbox, aserciones con
+    `Path.read_text()`); `utcnow_naive` parcheado a `datetime(2026,7,11,9,30)` para rutas
+    `YYYY/MM/YYYY-MM-DD` deterministas. `_run_loop` se ejercita **directo** (no vía la task
+    de fondo) parcheando `asyncio.sleep` para cortar el bucle. Cubre: `start`
+    (crea dirs + task; no re-arranca si task viva), `stop` (cancel + swallow; sin task
+    no-op), `_run_loop` (happy / `CancelledError`→break / `Exception`→log+sleep),
+    `sync_lists_to_md` (escribe nuevo con frontmatter / skip sin slug / skip si file existe→MD
+    gana), `sync_inbox_to_md` (vacío / ninguno de hoy / escribe hoy con formato time+tags+
+    priority, con y sin `T` y sin tags), `sync_archives_to_md` (vacío / agrupa por `YYYY-MM`
+    con fallback `archived_at`/`created_at` / bucket `unknown`→skip / `year_month`
+    malformado→skip), `sync_md_to_lists` (dir inexistente→0 / ignora no-`.md` y vacíos /
+    crea nuevo con slug+name desde filename / actualiza existente con campos opcionales +
+    `is_active` / read-error→warning+continue), `full_sync` (agrega los 4 contadores +
+    `sync_count`+`last_sync`; cada sub-sync que lanza→capturada en `errors` sin abortar),
+    `_parse_frontmatter` (sin `---` / sin 2º marcador / bool yes-no-true-false / listas / quotes
+    / comentarios y líneas sin `:`), `_build_frontmatter` (bool/list/None/str + roundtrip),
+    `_parse_bool`, `_ensure_dirs`, `_write_file`/`_read_file` (crea dirs intermedios),
+    `get_status`, `get_today_inbox_md` (presente/ausente). Módulo: **0% → 100%** (276 stmts,
+    0 sin cubrir).
+  - `chore(cov)` (`c22d7ec`): ratchet gate `make cov` **51% → 55%** (medido 57.31%, margen
+    ~2.3 pt; suite determinista sin red/DB/tiempo). Actualizado comentario+nota del target en
+    `Makefile` y cabecera+histórico de `docs/COVERAGE_ROADMAP.md` (53.31→57.31%).
+
+- **Verify:** **`make verify` 100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓
+  (mypy app/, 0 errores) · test ✓ (**701 pass** + 2 skip; incluye sdk/python/tests/) ·
+  cov ✓ (**57.31%** ≥ gate 55%, era 53.31%/gate 51). +4.00 pts. No se arrancó nada (ni
+  gateway ni infra); sin procesos residuales; árbol para 3 commits atómicos.
+
+- **DECISIÓN PENDIENTE (Jessicache) — sin cambios, ambas siguen abiertas:**
+  (1) **bug bcrypt del funnel** (bcrypt 5.0.0 + passlib 1.7.4 incompatibles →
+  `POST /auth/register` y login darían 500 en runtime). Recomendación intacta: fijar
+  `bcrypt<5` (p.ej. `bcrypt==4.0.1`) + `uv lock`. No se aborda sin aprobación (lockfile).
+  (2) **frontend del funnel** (`/register` inexistente en `micelia/frontend`). Feature
+  nueva + QA humano → fuera de alcance autónomo.
+
+- **Bloqueado/pendiente:** dir legacy `vital-core/docs/` sigue en el árbol (DoD §7 rebrand).
+  Mayores gaps de cobertura restantes, todos aún limpios/mockeables: `mcp_generator.py`
+  (0%, 554 líneas, codegen — puro string/template, sin fronteras externas), `entire_session.py`
+  (0%, 164 líneas), `osascript.py` (24%, 318 stmts, macOS-specific — poco portable a CI
+  Linux). El ratchet de mypy hacia `strict=true` (`disallow_untyped_defs`) sigue vivo.
+
+- **Mañana:** (a) si Jessicache aprueba, arreglar el bug bcrypt (fijar `bcrypt<5` +
+  `uv lock`) + test de integración real register/login. (b) cobertura: `mcp_generator.py`
+  (0%, 554 líneas) — es el mayor gap **limpio** restante (generación de código, puro
+  string/template sin red/DB, 100% determinista); alternativa más pequeña `entire_session.py`
+  (0%, 164 líneas). (c) arrancar el ratchet mypy activando `disallow_untyped_defs` en
+  `app/services/frangels/` (ya al ~99% de cobertura).
+
+---
+
 ## 2026-07-11 — Ciclo 9 (event_bus 0→100% · cobertura 51.93→53.31% · gate 49→51)
 
 **Contexto:** Ciclo 8 dejó `make verify` 100% verde (644 pass, cov 51.93%, gate 49%) con
