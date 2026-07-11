@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { Zap, Eye, EyeOff } from 'lucide-react'
 import { authApi } from '@/lib/api'
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,10 +20,10 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      await authApi.login(username, password)
+      await authApi.register(email, password)
       router.push('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setLoading(false)
     }
@@ -40,7 +40,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-idm-primary to-idm-health bg-clip-text text-transparent">
             MICELIA
           </h1>
-          <p className="text-xs text-gray-500 mt-1">Orquestador del ecosistema UTOP.IA</p>
+          <p className="text-xs text-gray-500 mt-1">Crea tu cuenta en el ecosistema UTOP.IA</p>
         </div>
 
         {/* Error */}
@@ -53,18 +53,18 @@ export default function LoginPage() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="username" className="block text-sm text-gray-400 mb-1.5">
-              Username
+            <label htmlFor="email" className="block text-sm text-gray-400 mb-1.5">
+              Email
             </label>
             <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
-              autoComplete="username"
+              autoComplete="email"
               className="w-full px-4 py-2.5 rounded-lg bg-idm-surface border border-idm-border text-white placeholder-gray-500 focus:outline-none focus:border-idm-primary/50 transition-colors"
-              placeholder="Enter your username"
+              placeholder="you@example.com"
             />
           </div>
 
@@ -79,9 +79,10 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                autoComplete="current-password"
+                minLength={8}
+                autoComplete="new-password"
                 className="w-full px-4 py-2.5 rounded-lg bg-idm-surface border border-idm-border text-white placeholder-gray-500 focus:outline-none focus:border-idm-primary/50 transition-colors pr-11"
-                placeholder="Enter your password"
+                placeholder="At least 8 characters"
               />
               <button
                 type="button"
@@ -98,15 +99,15 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full py-2.5 rounded-lg bg-idm-primary hover:bg-idm-primary/80 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating account...' : 'Create account'}
           </button>
         </form>
 
-        {/* Link to register */}
+        {/* Link to login */}
         <p className="mt-6 text-center text-sm text-gray-500">
-          ¿No tienes cuenta?{' '}
-          <Link href="/register" className="text-idm-primary hover:text-idm-primary/80 transition-colors">
-            Regístrate
+          ¿Ya tienes cuenta?{' '}
+          <Link href="/login" className="text-idm-primary hover:text-idm-primary/80 transition-colors">
+            Inicia sesión
           </Link>
         </p>
       </div>

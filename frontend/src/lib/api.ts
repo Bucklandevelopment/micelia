@@ -524,6 +524,25 @@ export const authApi = {
     setStoredTokens(data.access_token, data.refresh_token)
     return data
   },
+  register: async (email: string, password: string) => {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    if (!res.ok) {
+      const message =
+        res.status === 409
+          ? 'Email already registered'
+          : res.status === 422
+            ? 'Invalid email or password (min. 8 characters)'
+            : 'Registration failed'
+      throw new ApiError(res.status, message)
+    }
+    const data = await res.json()
+    setStoredTokens(data.access_token, data.refresh_token)
+    return data
+  },
   me: () => fetchApi<{ username: string; auth_method: string }>('/auth/me'),
   logout: () => { clearStoredTokens() },
 }
