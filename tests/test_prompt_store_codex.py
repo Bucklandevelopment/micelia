@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.models.base import Base
 from app.models.prompt import PromptListModel, PromptModel
 from app.services.prompt_store import PromptStore
 
@@ -1029,3 +1030,47 @@ class TestClose:
         store.engine = None
         # Should not raise
         await store.close()
+
+
+class TestInitialize:
+    """initialize(): DB-setup mockeado (create_async_engine + async_sessionmaker + create_all)."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_creates_engine_session_and_tables(self, monkeypatch):
+        conn = AsyncMock()
+        conn.run_sync = AsyncMock()
+        begin_cm = AsyncMock()
+        begin_cm.__aenter__ = AsyncMock(return_value=conn)
+        begin_cm.__aexit__ = AsyncMock(return_value=False)
+        engine = MagicMock()
+        engine.begin = MagicMock(return_value=begin_cm)
+        sentinel_sessionmaker = MagicMock()
+
+        monkeypatch.setattr(
+            "app.services.prompt_store.create_async_engine",
+            lambda *a, **k: engine,
+        )
+        monkeypatch.setattr(
+            "app.services.prompt_store.async_sessionmaker",
+            lambda *a, **k: sentinel_sessionmaker,
+        )
+
+        store = PromptStore()
+        await store.initialize()
+
+        assert store.engine is engine
+        assert store.async_session is sentinel_sessionmaker
+        conn.run_sync.assert_awaited_once_with(Base.metadata.create_all)
+
+    @pytest.mark.asyncio
+    async def test_initialize_reraises_on_error(self, monkeypatch):
+        def _boom(*a, **k):
+            raise RuntimeError("engine down")
+
+        monkeypatch.setattr(
+            "app.services.prompt_store.create_async_engine", _boom
+        )
+
+        store = PromptStore()
+        with pytest.raises(RuntimeError, match="engine down"):
+            await store.initialize()

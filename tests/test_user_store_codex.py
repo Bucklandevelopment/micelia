@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.models.base import Base
 from app.models.user import UserModel
 from app.services.user_store import DuplicateEmailError, UserStore
 
@@ -192,3 +193,74 @@ async def test_touch_last_login_missing_user_is_noop(store, mock_session):
 
     await store.touch_last_login(uuid4())
     mock_session.commit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# initialize / close / _session guard  (DB-setup, no real Postgres)
+# ---------------------------------------------------------------------------
+
+
+def _fake_engine():
+    """A MagicMock engine whose begin() yields a conn with an AsyncMock run_sync."""
+    conn = AsyncMock()
+    conn.run_sync = AsyncMock()
+    begin_cm = AsyncMock()
+    begin_cm.__aenter__ = AsyncMock(return_value=conn)
+    begin_cm.__aexit__ = AsyncMock(return_value=False)
+    engine = MagicMock()
+    engine.begin = MagicMock(return_value=begin_cm)
+    engine.dispose = AsyncMock()
+    return engine, conn
+
+
+async def test_initialize_creates_engine_session_and_tables(monkeypatch):
+    engine, conn = _fake_engine()
+    sentinel_sessionmaker = MagicMock()
+    seen = {}
+
+    def _fake_create_async_engine(url, **_kwargs):
+        seen["url"] = url
+        return engine
+
+    def _fake_async_sessionmaker(bound_engine, **_kwargs):
+        seen["engine"] = bound_engine
+        return sentinel_sessionmaker
+
+    monkeypatch.setattr(
+        "app.services.user_store.create_async_engine", _fake_create_async_engine
+    )
+    monkeypatch.setattr(
+        "app.services.user_store.async_sessionmaker", _fake_async_sessionmaker
+    )
+
+    store = UserStore("postgresql+asyncpg://user:pass@localhost/testdb")
+    await store.initialize()
+
+    assert store.engine is engine
+    assert store.async_session is sentinel_sessionmaker
+    assert seen["url"] == "postgresql+asyncpg://user:pass@localhost/testdb"
+    assert seen["engine"] is engine
+    # tablas creadas dentro de engine.begin() con Base.metadata.create_all
+    conn.run_sync.assert_awaited_once_with(Base.metadata.create_all)
+
+
+async def test_close_disposes_engine():
+    store = UserStore()
+    engine = MagicMock()
+    engine.dispose = AsyncMock()
+    store.engine = engine
+
+    await store.close()
+    engine.dispose.assert_awaited_once()
+
+
+async def test_close_without_engine_is_noop():
+    store = UserStore()
+    store.engine = None
+    await store.close()  # no debe lanzar
+
+
+async def test_session_guard_raises_when_uninitialized():
+    store = UserStore()  # async_session sigue en None
+    with pytest.raises(RuntimeError, match="no inicializado"):
+        store._session()
