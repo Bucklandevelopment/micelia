@@ -16,6 +16,62 @@
 
 ---
 
+## 2026-07-12 — Ciclo 23 (router budget.py 0%→100% · verify verde 1008 pass · cov 75.17→75.67% · gate 74 sin cambio)
+
+**Contexto:** Ciclo 22 (misma fecha) dejó `make verify` verde (993 pass, cov 75.17%, gate 74) con el DoD v0.1
+cerrado salvo los 2 ítems que dependen de humano. Prioridad #1 (rojo→verde) satisfecha en baseline y el hito de
+cobertura ≥70% cumplido → el día cae en **prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El
+propio Ciclo 22 recomendó como "Mañana (Ciclo 23)" cubrir el siguiente router a 0% de mayor ganancia
+(`app/api/v1/budget.py`, 34 stmts) con el policy engine mockeado + ratchet del gate. Trabajo autónomo-seguro: sin
+infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16-22. Baseline confirmado verde antes
+de tocar nada (993 pass, 75.17%).
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_budget_codex.py` (**+15 tests**). Monta `budget.router` sobre un `FastAPI()`
+  local. **Diferencia con Ciclos 21/22**: `budget.py` obtiene el motor por **import a nivel de módulo**
+  (`from ...policy_engine import get_policy_engine`, no `app.state`), así que se monkeypatchea el nombre ya
+  enlazado en el namespace del módulo: `monkeypatch.setattr("app.api.v1.budget.get_policy_engine", lambda: fake)`
+  → el singleton real nunca se construye (sin disco/estado global). El fake es un `MagicMock` síncrono (el router
+  no `await`ea ninguno de sus métodos); `evaluate` devuelve un `PolicyDecision` **real** para que la proyección
+  de los 5 campos quede JSON-serializable. Cubre los **4 endpoints** y sus ramas: `GET /status` (happy +
+  `assert_called_once_with()`), `PATCH /limits` (assert kwargs `daily`/`monthly` en body completo/vacío→`None`/
+  parcial), `POST /category-policy` (happy con assert de la llamada + **las 5 políticas válidas parametrizadas** +
+  **política inválida→400** con `set_category_policy` no llamado + **body incompleto→422**), `POST /evaluate`
+  (defaults `note`/`free-first` con assert del dict pasado + query explícita + assert de los 5 campos proyectados)
+  y `test_requires_auth` (401/403 sin `X-API-Key`). El router queda **34/34 stmts, 100%, 0 miss**. Ni infra, ni
+  red, ni `.env`.
+- `chore(cov)`: `budget.py` cubierto sube el total 75.17%→**75.67%** (6.912 stmts). **Gate `--cov-fail-under` se
+  mantiene en 74** — la regla conservadora del log es `floor(medido)−1 = floor(75.67)−1 = 74`; para subir a 75 haría
+  falta medir ≥76%, así que el ratchet es **no-op** este ciclo y el `Makefile` no se toca. `docs/COVERAGE_ROADMAP.md`:
+  añade la medición del Ciclo 23 al histórico (header 75.17→75.67%, margen +5.67) con la nota del ratchet no-op.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (Ruff `app/ sdk/ tests/`), typecheck ✓ (mypy `app/`, 0 errores),
+test ✓ (**1008 pass** + 2 skip, era 993: +15 nuevos), cov ✓ (**75.67%** ≥ gate **74**). Frontend no tocado (sin
+`frontend-lint`). Sin gateway ni infra levantados (tests puros ASGI in-process); sin procesos `uvicorn`/podman
+residuales.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems que dependen de humano**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar el doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Routers aún a
+0% (cubribles sin infra, mismo patrón): `tunnel.py` (33 stmts — el router, no el servicio ya cubierto), `sync.py`
+(30), `audit.py` (25). **Siguiente de mayor ganancia: `tunnel.py`.** Dir legado vacío `micelia/vital-core/docs/`
+sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por
+Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 24):** seguir prioridad #3 con el siguiente router a 0% de mayor ganancia,
+`app/api/v1/tunnel.py` (33 stmts, el router — **ojo, no el servicio `app/services/tunnel.py` ya cubierto**) —
+inspeccionar sus dependencias (probablemente `app.state` / un manager de túnel ngrok) y montarlo sobre `FastAPI()`
+local con `AsyncMock`/`MagicMock`, mismo patrón; ratchet gate 74→75 **sólo si** la medición alcanza ≥76%.
+Alternativa si resulta bloqueado: arrancar el ratchet `mypy` hacia `strict` en `app/services/frangels/` (~99%
+cubierto). Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 22 (router agents.py 0%→100% + ratchet gate 73→74 · verify verde 993 pass · cov 74.26→75.17%)
 
 **Contexto:** Ciclo 21 (misma fecha) dejó `make verify` verde (977 pass, cov 74.26%, gate 73). Prioridad #1
