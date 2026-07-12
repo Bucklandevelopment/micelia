@@ -132,15 +132,18 @@ FASE 5  Validación final
 
 ## 7. Definition of Done (MiceliA v0.1)
 
-- [ ] `pytest -x` verde con 100% de los tests existentes + nuevos E2E.
-- [ ] `pytest --cov=app --cov-fail-under=70` pasa.
-- [ ] `grep -RE "IDM-CORE|IDMMORTALITY|vital.core" --include="*.{py,ts,tsx,md}"` no devuelve nada salvo en la sección "Legado" del README.
-- [ ] Alias CLI/package `idm ↔ micelia` documentado y testeado.
-- [ ] Los 5 dominios funcionales (`biohack`, `canela`, `ideacursi`, `cybertools`, `auto-mat-ion`) siguen siendo source-id válidos sin warnings.
-- [ ] `"micelia"` añadido como 6º source para eventos internos del orquestador (si T1.1 lo aprueba).
-- [ ] Frontend arranca contra mock backend y los 4 flujos críticos funcionan.
-- [ ] `docs/RELEASE_NOTES_MICELIA_v0.1.md` publicado.
-- [ ] Documento [`Micelia_Nodo1_Impacto_Socioeconomico.md`](../../Micelia_Nodo1_Impacto_Socioeconomico.md) actualizado con estado de la tarea T0.
+> Estado reconciliado en Ciclo 19 (2026-07-12). Evidencia inline; detalle en
+> `docs/ITERATION_LOG.md` y `docs/RELEASE_NOTES_MICELIA_v0.1.md §11`.
+
+- [x] `pytest -x` verde con 100% de los tests existentes + nuevos E2E. — **932 pass + 2 skip** (`make verify`, Ciclo 19).
+- [x] `pytest --cov=app --cov-fail-under=70` pasa. — medido **71.58%**, gate 70 (hito alcanzado Ciclo 18).
+- [x] `grep -RE "IDM-CORE|IDMMORTALITY|vital.core" --include="*.{py,ts,tsx,md}"` no devuelve nada salvo en la sección "Legado" del README. — grep sobre `app/`+`sdk/` **vacío** (verificado Ciclo 19).
+- [x] Alias CLI/package `idm ↔ micelia` documentado y testeado. — ver `RELEASE_NOTES §1.1` + tests de alias/`DeprecationWarning`.
+- [x] Los 5 dominios funcionales (`biohack`, `canela`, `ideacursi`, `cybertools`, `auto-mat-ion`) siguen siendo source-id válidos sin warnings. — enum en `app/sdk/models.py`, cubierto por tests.
+- [x] `"micelia"` añadido como 6º source para eventos internos del orquestador (si T1.1 lo aprueba). — añadido; normalización + `DeprecationWarning` para `"idm-core"`.
+- [ ] Frontend arranca contra mock backend y los 4 flujos críticos funcionan. — **pendiente QA visual humano** (lint+tipos verdes, render no verificado).
+- [x] `docs/RELEASE_NOTES_MICELIA_v0.1.md` publicado. — publicado 2026-05-24, **actualizado 2026-07-12** con addendum §11.
+- [ ] Documento [`Micelia_Nodo1_Impacto_Socioeconomico.md`](../../Micelia_Nodo1_Impacto_Socioeconomico.md) actualizado con estado de la tarea T0. — **pendiente**: requiere montar el doc canónico en sesión.
 
 ---
 

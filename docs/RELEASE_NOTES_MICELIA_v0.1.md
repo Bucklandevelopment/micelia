@@ -1,7 +1,7 @@
 # Micelia v0.1 — Release Notes
 
-**Fecha de release**: 2026-05-24
-**Estado**: release candidate (RC) — listo para uso interno y para pitch a interlocutores externos
+**Fecha de release**: 2026-05-24 · **Última actualización**: 2026-07-12 (Ciclo 19)
+**Estado**: release candidate (RC) endurecida — DoD v0.1 de calidad cerrado salvo QA visual de frontend (ver §11)
 **Hito**: primera versión nombrada del orquestador anteriormente conocido como `vital-core` / `IDM-CORE`
 
 ---
@@ -301,6 +301,51 @@ Para entender por qué Micelia existe y qué problema resuelve, leer en este ord
 
 ---
 
+## 11. Addendum — endurecimiento post-RC (Ciclos 6–19, jul 2026)
+
+Tras cerrar la RC el 24-may, la rutina diaria (`DAILY_MICELIA_PLANNING.md`) ejecutó una
+campaña de endurecimiento del núcleo. Cambios materiales sobre el estado del 24-may:
+
+### 11.1 Cobertura de tests: 24% → 71.58% (DoD T5.1 cumplido)
+
+El gate de cobertura subió por *ratchet* incremental (un módulo a 100% + un escalón de gate
+por ciclo, sin tocar infra), midiendo **71.58%** con `--cov-fail-under=70`. La suite pasó de
+~2,5k LOC iniciales a **932 tests** (`pytest`, +2 skip), todos deterministas (sin red/DB/
+subprocesos reales; fronteras externas mockeadas con `AsyncMock`/`MagicMock`). Módulos que
+pasaron de 0%→~100% en la campaña: `event_bus`, `markdown_sync`, `mcp_generator`,
+`entire_session`, `workflow_engine`, `user_store`, `prompt_store`, y los routers
+`app/api/v1/{prompts,routine,mcp,skills}.py`. Detalle por ciclo en `docs/ITERATION_LOG.md`
+y `docs/COVERAGE_ROADMAP.md`. **El criterio DoD "cov ≥ 70%" queda cumplido.**
+
+### 11.2 Funnel register→login desbloqueado (bug bcrypt resuelto)
+
+Se detectó y corrigió un bug de runtime que hacía dar **500** a `POST /auth/register` y al
+login real: `bcrypt 5.0.0` + `passlib 1.7.4` son incompatibles (passlib sondea
+`bcrypt.__about__.__version__`, eliminado en bcrypt ≥ 4.1). Fix: pin **`bcrypt==4.0.1`** en
+`pyproject.toml` + `uv lock`, con un test de integración que corre bcrypt real (falla con
+5.0.0, pasa con 4.0.1). Añadido el frontend `/register` (clon de `/login` con auto-login) y
+`frontend/.eslintrc.json` (antes `next lint` colgaba). `make frontend-lint` corre limpio.
+
+### 11.3 Fixes de contrato de API
+
+- `GET /prompts/lists` estaba **oculto** por la ruta dinámica `GET /prompts/{prompt_id}`
+  (Starlette matcheaba `"lists"` como UUID → 422). Se reordenó la ruta estática antes de la
+  dinámica; el endpoint de colección vuelve a ser alcanzable.
+- `POST /skills` y `GET /skills` devolvían **500** cuando el store no estaba inicializado, en
+  vez del **503** correcto (les faltaba `except HTTPException: raise`). Corregido en Ciclo 19,
+  ya consistente con el resto de endpoints.
+
+### 11.4 Estado del DoD v0.1 (ver checkboxes en `PLAN_MICELIA_v0.md §7`)
+
+Cumplidos con evidencia: `pytest` verde (932), `cov ≥ 70%` (71.58%), grep de strings legado
+limpio en `app/`+`sdk/`, los 5 dominios funcionales siguen siendo source-id válidos, `"micelia"`
+añadido como 6º source, y estas release notes publicadas/actualizadas. **Pendiente de humano:**
+QA visual de los 4 flujos de frontend y la actualización del doc canónico
+`Micelia_Nodo1_Impacto_Socioeconomico.md` (requiere montarlo en sesión).
+
+---
+
 *Documento generado al cerrar v0.1 — 2026-05-24 · Nodo 1 (Jessicache).*
+*Addendum de endurecimiento — 2026-07-12 (Ciclo 19), rutina Daily Micelia Full Planning.*
 
 *"Micelia no te paga por existir — te cubre por contribuir."*
