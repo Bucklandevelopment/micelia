@@ -16,6 +16,66 @@
 
 ---
 
+## 2026-07-12 — Ciclo 26 (servicio osascript.py 0%*→100% — PIVOTE de routers a servicios · verify verde 1120 pass · cov 76.94→80.44% · gate 75→79)
+
+**Contexto:** Ciclo 25 (misma fecha) cerró el **backlog de routers a 0%** dejando `make verify` verde (1042 pass,
+cov 76.94%, gate 75) y recomendó como "Mañana (Ciclo 26)" **pivotar de "cubrir routers" a "subir cobertura donde
+más falta"**, con candidato #1 explícito: `app/services/osascript.py` (318 stmts, **24%** — el mayor bloque
+descubierto del proyecto), evaluando cuánto es testeable mockeando el subprocess. Prioridad #1 (rojo→verde)
+satisfecha en baseline y el hito ≥70% (DoD v0.1) cumplido → el día cae de nuevo en **prioridad #3 (roadmap: subir
+cobertura hacia v0.2)**. Este ciclo cubre `osascript.py` — primer **servicio** atacado tras la campaña de routers.
+Tras leer el módulo: todo son wrappers de `subprocess.run` + parseo de stdout → **100% testeable sin macOS real**.
+Trabajo autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`, sin tocar `app/` de runtime.
+Baseline confirmado verde antes de tocar nada (1042 pass, 76.94%; `osascript.py` a 24%). (*medido 24%, no 0%.)
+
+**Hecho (3 commits atómicos):**
+- `test(services)` (`osascript.py`): nuevo `tests/test_osascript_codex.py` (**+78 tests**). Convención `_codex`
+  (plantilla `test_tunnel_codex.py`). **Dos estrategias de mock complementarias**: (1) tests de helpers/verify
+  parchean `osa.subprocess.run` — cubren las **4 ramas** de `_run_applescript` (`["osascript","-e",script]`) y
+  `_run_applescript_file` (`["osascript"]` + `input=script`): éxito con `.strip()`, `returncode≠0`→`OSAScriptError`
+  con `stderr`, `TimeoutExpired`→`OSAScriptError("timed out")`, `Exception` genérica→`OSAScriptError(str)`; y las
+  ramas de `_verify_osascript`/`__init__` (rc0 ok, rc≠0→`log.warning`, excepción→`log.warning`; **ninguna propaga**)
+  + singleton de módulo. (2) Los **~30 métodos públicos** parchean el helper de instancia
+  (`patch.object(svc, "_run_applescript[_file]", ...)`) devolviendo string canned o lanzando `OSAScriptError`, lo
+  que **aísla parseo y AppleScript construido** sin depender de detalles de subprocess: `split("|")`/`"|||"`/`", "`,
+  degradación (`[]`/`None`/`False`/`""`), clamp de `set_volume` (150→100, −5→0), escape de `create_note`
+  (`"`→`\\"`, `\\n`), `missing value`→`None` en `search_contacts`, y asserts del script (nombre de
+  calendario/lista/carpeta, `subtitle "…"`, `make new tab` vs `set URL of current tab`, `due date:date`,
+  `whose completed is false` presente/ausente). Grupos: sistema (info/frontmost/running/notification/say/volume/
+  dark-mode), calendario, recordatorios, notas, safari, contactos, finder, clipboard, music. **`osascript.py`
+  318/318 stmts, 100%, 0 miss.** Ni infra, ni red, ni `.env`.
+- `chore(cov)`: total 76.94%→**80.44%** (+3.50 pts, **el mayor salto de un ciclo**). Ratchet **efectivo**:
+  regla `floor(80.44)−1 = 79` → gate `--cov-fail-under` **75→79** en `Makefile` (target `cov` + comentario + nota).
+  `docs/COVERAGE_ROADMAP.md` actualizado (medición + entrada Ciclo 26 en el histórico).
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (`ruff` app/sdk/tests), typecheck ✓ (`mypy app/`, 0 errores),
+test ✓ (**1120 pass** + 2 skip, era 1042: +78 nuevos), cov ✓ (**80.44%** ≥ gate **79**). Frontend no tocado
+(no aplica `frontend-lint`). Sin procesos residuales (ciclo solo-tests, sin runtime).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura: con
+`osascript.py` cerrado, ya **no quedan bloques descubiertos grandes**; el resto son huecos pequeños repartidos
+(ver `term-missing`): `google_calendar.py` 240/98% (miss 24-28), `service_registry.py` 120/97%, `quota_manager.py`
+188/97%, `context_assembler.py` 131/97%, `prompt_agent.py` 144/98%, `prompts.py`/`ai.py` en API. Dir legacy vacío
+`micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin
+`/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 27 — NEXT STEP):** ya sin un único bloque descubierto grande, la cobertura sube más despacio.
+Dos vías de valor: (a) **cerrar huecos pequeños de alto valor** — empezar por `app/services/google_calendar.py`
+(miss 24-28, ~5 stmts: probable rama de import/config opcional) y `app/services/agents/prompt_os_agents.py`
+(miss 54-55), baratos y suben el total; o (b) **iniciar el ratchet `mypy strict`** en `app/services/frangels/`
+(~99% cubierto, superficie acotada) como nuevo eje de calidad además de cobertura. **Recomendado: (a)** medir con
+`term-missing` los 3-4 módulos con menos miss y cerrarlos en un solo ciclo hasta rozar ~81% (ratchet a 80); dejar
+(b) documentado como candidato de eje nuevo. No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 25 (routers sync.py + audit.py 0%→100% — CIERRA backlog de routers a 0% · verify verde 1042 pass · cov 76.14→76.94% · gate 75 sin cambio)
 
 **Contexto:** Ciclo 24 (misma fecha) dejó `make verify` verde (1021 pass, cov 76.14%, gate 75). Prioridad #1
