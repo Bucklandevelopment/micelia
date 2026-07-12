@@ -16,6 +16,61 @@
 
 ---
 
+## 2026-07-12 — Ciclo 24 (router tunnel.py 0%→100% + ratchet gate 74→75 · verify verde 1021 pass · cov 75.67→76.14%)
+
+**Contexto:** Ciclo 23 (misma fecha) dejó `make verify` verde (1008 pass, cov 75.67%, gate 74). Prioridad #1
+(rojo→verde) satisfecha en baseline y el hito de cobertura ≥70% (DoD v0.1) cumplido → el día vuelve a caer en
+**prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El propio Ciclo 23 recomendó como
+"Mañana (Ciclo 24)" cubrir el siguiente router a 0% de mayor ganancia (`app/api/v1/tunnel.py`, 33 stmts — **el
+router, no el servicio `app/services/tunnel.py` ya al 100%**) con `get_tunnel_service` mockeado + ratchet del gate.
+Trabajo autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16-23.
+Baseline confirmado verde antes de tocar nada (1008 pass, 75.67%; `tunnel.py` router 33/33 a 0%).
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_tunnel_codex.py` (**+13 tests**). Monta `tunnel.router` sobre un `FastAPI()`
+  local. **Mismo shape que Ciclo 23 (budget)**: el router obtiene el servicio por **import a nivel de módulo**
+  (`from app.services.tunnel import get_tunnel_service`), así que se monkeypatchea el nombre ya enlazado en el
+  namespace del módulo: `monkeypatch.setattr("app.api.v1.tunnel.get_tunnel_service", lambda: fake)` → el singleton
+  real (`TunnelService`) nunca se construye, `pyngrok` jamás se importa, cero red. El fake: `start`/`stop` son
+  `await`eados → `AsyncMock`; `get_info` es síncrono → `MagicMock` con dict plano; `is_connected`/`public_url` son
+  atributos → valores planos. Cubre los **4 endpoints** y todas sus ramas: `GET /status` y `GET /info` (delegan a
+  `get_info`, con `assert_called_once_with()`), `POST /start` (**3 ramas**: `is_connected`→early return con
+  `public_url` sin `await` de `start`; no-conectado + `start` devuelve URL→`{success, public_url}`; no-conectado +
+  `start`→`None`→**HTTP 500**) con el **plumbing del port** (body `{port: N}`→`start` awaited con `N`; sin body
+  →`request None`→`None`; body vacío `{}`→`None`), `POST /stop` (**2 ramas**: no-conectado→early return sin `await`
+  de `stop`; conectado→`await stop` + mensaje) y `test_requires_auth` **parametrizado** sobre los 4 endpoints
+  (401/403 sin `X-API-Key`). El router queda **33/33 stmts, 100%, 0 miss**. Ni infra, ni red, ni `.env`.
+- `chore(cov)`: `tunnel.py` cubierto sube el total 75.67%→**76.14%** (6.912 stmts). **Ratchet efectivo**: la regla
+  conservadora del log es `floor(medido)−1 = floor(76.14)−1 = 75`, así que el gate `--cov-fail-under` del `Makefile`
+  sube **74→75** (target `cov`, comentario y nota actualizados: medido 75.17→76.14%). `docs/COVERAGE_ROADMAP.md`:
+  header 75.67→76.14% (margen +6.14, gate 75) + línea del Ciclo 24 en el histórico.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (Ruff `app/ sdk/ tests/`), typecheck ✓ (mypy `app/`, 0 errores),
+test ✓ (**1021 pass** + 2 skip, era 1008: +13 nuevos), cov ✓ (**76.14%** ≥ gate **75**). Frontend no tocado (sin
+`frontend-lint`). Sin gateway ni infra levantados (tests puros ASGI in-process); sin procesos `uvicorn`/podman
+residuales.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems que dependen de humano**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar el doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Routers aún a
+0% (cubribles sin infra, mismo patrón): `sync.py` (30 stmts), `audit.py` (25). **Siguiente de mayor ganancia:
+`sync.py`.** Dir legado vacío `micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend
+`middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 25):** seguir prioridad #3 con el siguiente router a 0% de mayor ganancia,
+`app/api/v1/sync.py` (30 stmts) — inspeccionar sus dependencias (probablemente `app.state` / un servicio de sync
+markdown) y montarlo sobre `FastAPI()` local con `AsyncMock`/`MagicMock`, mismo patrón; ratchet gate 75→76 **sólo
+si** la medición alcanza ≥77%. Tras `sync.py` queda `audit.py` (25 stmts) para cerrar los routers a 0%. Alternativa
+si resulta bloqueado: arrancar el ratchet `mypy` hacia `strict` en `app/services/frangels/` (~99% cubierto). Sin
+tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 23 (router budget.py 0%→100% · verify verde 1008 pass · cov 75.17→75.67% · gate 74 sin cambio)
 
 **Contexto:** Ciclo 22 (misma fecha) dejó `make verify` verde (993 pass, cov 75.17%, gate 74) con el DoD v0.1
