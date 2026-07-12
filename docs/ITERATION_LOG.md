@@ -16,6 +16,61 @@
 
 ---
 
+## 2026-07-12 — Ciclo 20 (router calendar.py 0%→100% + ratchet gate 70→72 · verify verde 962 pass · cov 71.60→73.18%)
+
+**Contexto:** Ciclo 19 (misma fecha) dejó `make verify` verde (933 pass, cov 71.60%, gate 70) con el
+**DoD v0.1 cerrado salvo los 2 ítems que dependen de humano** (QA visual frontend + doc Nodo 1),
+ambos ya escalados como bloqueo. Prioridad #1 (rojo→verde) satisfecha en baseline y hito de cobertura
+cumplido → el día cae en **prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El
+propio Ciclo 19 recomendó como "Mañana (Ciclo 20)" cubrir el siguiente router a 0% de mayor ganancia
+(`calendar.py`, 109 stmts) con un fake de `get_google_calendar` + ratchet del gate. Trabajo
+autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16/17/18.
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_calendar_codex.py` (**+29 tests**). Monta `calendar.router` sobre
+  un `FastAPI()` local con `get_google_calendar` monkeypatcheado a un `MagicMock` (métodos async que el
+  router `await`ea = `AsyncMock`; síncronos `get_status`/`is_connected` = returns planos) → el singleton
+  real nunca se construye, sin OAuth flow / token file / red. Cubre los **9 endpoints** y todas sus ramas:
+  `/auth` (200/501 RuntimeError/400 ValueError/500), `/callback` (200/501/500/422 sin `code`), `/status`
+  (200), `/calendars` (403 no conectado/200 count/500), `GET /events` (403/200 con `now`/200 con `date`
+  válida/**400 fecha malformada propagada vía `except HTTPException: raise`**/500/422 `days` fuera de
+  `[1,90]`), `POST /events` (403/200/400 ValueError/500/422 body incompleto), `/sync` (403/200/500),
+  `DELETE /disconnect` (200/500) y 401/403 sin `X-API-Key`. **`calendar.py` 0%→100%** (109 stmts, 0 miss).
+- `chore(cov)`: `calendar.py` cubierto sube el total 71.60%→**73.18%** (6.912 stmts). `--cov-fail-under`
+  70→**72** en el target `cov` del `Makefile` (criterio conservador `floor(medido)−1`, ~1.18 pts de
+  margen) + header e histórico de `docs/COVERAGE_ROADMAP.md` con la línea del Ciclo 20.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy app/, 0
+errores) · test ✓ (**962 pass** + 2 skip, era 933: +29 nuevos) · cov ✓ (**73.18%** ≥ gate 72, era 71.60%
+/gate 70). Frontend no tocado → no aplica `frontend-lint`. No se arrancó gateway ni infra; sin procesos
+residuales. Baseline confirmado verde antes de tocar nada.
+
+**Bloqueado/pendiente:**
+- **DoD v0.1 — 2 ítems abiertos, ambos requieren humano** (sin cambios respecto a Ciclo 19): (1) QA
+  visual de los 4 flujos de frontend; (2) actualización del doc canónico
+  `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado de T0.
+- Routers `app/api/v1/*` aún a 0% (cubribles sin infra, mismo patrón): `dashboard.py` (75 stmts),
+  `agents.py` (63), `budget.py` (34), `tunnel.py` (33 — ojo, es el router, no el servicio ya cubierto),
+  `sync.py` (30), `audit.py` (25). Siguiente de mayor ganancia: `dashboard.py`.
+- Dir legacy vacío `micelia/vital-core/docs/` sigue en el árbol — anotado, no tocado (git no versiona
+  dirs vacíos; candidato a limpieza sólo si Jessicache lo aprueba explícitamente).
+- Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas las de Jessicache: hosting/DNS/TLS de
+`*.idmmortality.com` (Hito 3) y eventual retorno del funnel público.
+
+**Mañana (Ciclo 21):** seguir prioridad #3 con el siguiente router a 0% de mayor ganancia,
+`app/api/v1/dashboard.py` (75 stmts) — inspeccionar sus dependencias (probablemente `app.state`
+prompt_store/service_registry + agregación read-only) y montarlo sobre `FastAPI()` local con
+`AsyncMock`/`MagicMock`, mismo patrón; ratchet gate 72→73 si la medición lo permite. Alternativa si
+resulta bloqueado: arrancar el ratchet `mypy` hacia `strict` en `app/services/frangels/` (~99% cubierto).
+Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 19 (cierre parcial DoD v0.1 + fix quirk skills 503 · verify verde 933 pass · cov 71.58→71.60%)
 
 **Contexto:** Ciclo 18 (misma fecha) alcanzó el **hito DoD ≥70% de cobertura** (verify verde, 932
