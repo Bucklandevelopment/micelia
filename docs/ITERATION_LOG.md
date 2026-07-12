@@ -16,6 +16,69 @@
 
 ---
 
+## 2026-07-12 — Ciclo 19 (cierre parcial DoD v0.1 + fix quirk skills 503 · verify verde 933 pass · cov 71.58→71.60%)
+
+**Contexto:** Ciclo 18 (misma fecha) alcanzó el **hito DoD ≥70% de cobertura** (verify verde, 932
+pass, cov 71.58%, gate 70) y recomendó como "Mañana (Ciclo 19)": (1) reconciliar los checkboxes
+del DoD `PLAN_MICELIA_v0.md §7` con evidencia, (2) FASE 5 — release notes, (3) opcional `fix(api)`
+del quirk 503→500 de `skills.py`. Con prioridad #1 (rojo→verde) satisfecha en baseline y el hito de
+cobertura cumplido, el día cae en **prioridad #2 (roadmap): cerrar el resto del DoD v0.1**. Estado
+verificado hoy (read-only): grep de strings legado sobre `app/`+`sdk/` ya **vacío**;
+`RELEASE_NOTES_MICELIA_v0.1.md` **existe pero fechado 24-may** (previo a Ciclos 6–18); checkboxes
+del DoD todos `[ ]` aunque varios ya ciertos; quirk `skills.py` confirmado (un solo test lo pinaba).
+
+**Hecho (3 commits atómicos):**
+- `fix(api)` (`3886640`): `create_skill` y `list_skills` en `app/api/v1/skills.py` carecían de
+  `except HTTPException: raise` antes del `except Exception` genérico → el 503 de `_get_manager`
+  (store no inicializado) se tragaba y afloraba como **500**, inconsistente con los 6 endpoints
+  hermanos. Añadida la cláusula a ambos (sin cambio de lógica de negocio). Tests en
+  `tests/test_api_skills_codex.py`: renombrado `test_list_skills_quirk_503_becomes_500` →
+  `test_list_skills_missing_store_503` (assert **503** + `"prompt_store not initialized"`), añadido
+  `test_create_skill_missing_store_503` (POST con `CREATE_PAYLOAD` válido y `build_app()` sin store
+  → 503), docstring del módulo actualizado (quirk → fixed). El fix añade una rama antes no cubierta
+  → cov 71.58%→**71.60%**.
+- `docs` (`7323b10`): (a) `RELEASE_NOTES_MICELIA_v0.1.md` — nueva **§11 addendum** (sin reescribir
+  lo previo) documentando con evidencia el endurecimiento post-RC: cobertura 24%→71.58% (DoD T5.1),
+  fix bcrypt del funnel (`bcrypt==4.0.1`) + `/register` + auto-login, fixes de contrato
+  (`/prompts/lists` reordenada, `skills` 503); header actualizado a 2026-07-12. (b)
+  `PLAN_MICELIA_v0.md §7` — **7/9 checkboxes del DoD marcados `[x]`** con evidencia inline (pytest
+  932, cov 71.58%, grep legado limpio, alias `idm↔micelia` testeado, 5 dominios source-id válidos,
+  `"micelia"` 6º source, release notes publicadas/actualizadas). Quedan `[ ]` los 2 dependientes de
+  humano/doc externo: QA visual de 4 flujos frontend y update del doc canónico Nodo 1.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy app/,
+0 errores) · test ✓ (**933 pass** + 2 skip, era 932: −1 test renombrado, +2 nuevos) · cov ✓
+(**71.60%** ≥ gate 70, era 71.58%). Frontend no tocado → no aplica `frontend-lint`. No se arrancó
+gateway ni infra; sin procesos residuales. Baseline confirmado verde antes de tocar nada.
+
+**Bloqueado/pendiente:**
+- **DoD v0.1 — 2 ítems abiertos, ambos requieren humano:** (1) QA visual de los 4 flujos de
+  frontend (`frontend-lint` valida lint+tipos, no el render); (2) actualización del doc canónico
+  `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado de T0 (requiere montarlo en sesión).
+- Routers `app/api/v1/*` aún a 0% (cubribles sin infra, mismo patrón; el DoD 70% ya está cumplido,
+  margen +1.60): `calendar.py` (109 stmts), `dashboard.py` (75), `agents.py` (63), `budget.py` (34),
+  `tunnel.py` (33), `sync.py` (30), `audit.py` (25).
+- Dir legacy vacío `micelia/vital-core/docs/` sigue en el árbol (DoD §7 rebrand) — **anotado, no
+  tocado** (guardarraíl: no reestructurar carpetas; git no versiona dirs vacíos). Candidato a
+  limpieza si Jessicache lo aprueba explícitamente.
+- Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache, Ciclo 16).
+- `osascript.py` (24%, macOS-only) y `cli.py`/`main.py` — el roadmap los marca "no testear"/E2E.
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas las de Jessicache: hosting/DNS/TLS de
+`*.idmmortality.com` (Hito 3) y eventual retorno del funnel público.
+
+**Mañana (Ciclo 20):** el DoD v0.1 queda cerrado salvo los 2 ítems que dependen de Jessicache
+(QA visual frontend + doc Nodo 1) → escalarlos como bloqueo humano. Trabajo autónomo-seguro
+restante: (1) seguir prioridad #3 cubriendo el siguiente router a 0% de mayor ganancia
+(`calendar.py`, 109 stmts, con fake de `get_google_calendar` en `app.state`) + ratchet gate 70→71
+para ampliar margen; (2) alternativa: arrancar el ratchet mypy hacia `strict` en un paquete ya
+cubierto (`app/services/frangels/` ~99%). Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 18 (routers mcp 0%→100% + skills 0%→100% · gate 67→70 · total 67.85→71.58% · **HITO DoD ≥70% ALCANZADO**)
 
 **Contexto:** Ciclo 17 (misma fecha, ejecución anterior) dejó verify verde (866 pass, cov 67.85%,
