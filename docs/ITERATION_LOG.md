@@ -16,6 +16,66 @@
 
 ---
 
+## 2026-07-12 — Ciclo 21 (router dashboard.py 0%→100% + ratchet gate 72→73 · verify verde 977 pass · cov 73.18→74.26%)
+
+**Contexto:** Ciclo 20 (misma fecha) dejó `make verify` verde (962 pass, cov 73.18%, gate 72) con el
+**DoD v0.1 cerrado salvo los 2 ítems que dependen de humano** (QA visual frontend + doc Nodo 1), ambos
+ya escalados. Prioridad #1 (rojo→verde) satisfecha en baseline y el hito de cobertura ≥70% cumplido →
+el día cae en **prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El propio Ciclo 20
+recomendó como "Mañana (Ciclo 21)" cubrir el siguiente router a 0% de mayor ganancia
+(`app/api/v1/dashboard.py`, 75 stmts) con `app.state` mockeado + ratchet del gate. Trabajo
+autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16-20.
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_dashboard_codex.py` (**+15 tests**). Monta `dashboard.router` sobre
+  un `FastAPI()` local; fija en `app.state` los seis insumos del agregador (`prompt_store`,
+  `prompt_executor`, `prompt_agent`, `prompt_scheduler`, `google_calendar`) a `AsyncMock`/`MagicMock`
+  (métodos `await`eados = `AsyncMock`; escalares leídos por `getattr` — `completed_today`, `is_running`,
+  `active_count`, `is_connected` — como valores reales) y monkeypatchea
+  `app.services.frangels.policy_engine.get_policy_engine` (import función-local en `_get_budget`). El
+  singleton real del policy engine nunca se construye. Cubre el endpoint `GET /dashboard/summary` y las
+  **6 sub-agregaciones** con todas sus ramas: `_get_activity` (sin store→defaults / dicts con `total` /
+  no-dict→`isinstance` falso / `Exception`→warning+defaults / executor presente vs ausente), `_get_budget`
+  (engine con budget / `except`→ceros / clave ausente→default), `_get_queue_preview` y `_get_recent_results`
+  (sin store→`[]` / dict con `prompts` / no-dict→`[]` / `Exception`→`[]`, truncado `content[:100]` y
+  defaults por campo), `_get_agent_status` (todos presentes / parciales / ausentes), `_get_calendar_upcoming`
+  (ausente / presente-no-conectado / conectado con eventos `dateTime`+`date` / `Exception`→`[]` / `None`→`[]`)
+  y 401/403 sin `X-API-Key`. **`dashboard.py` 0%→100%** (75 stmts, 0 miss).
+- `chore(cov)`: `dashboard.py` cubierto sube el total 73.18%→**74.26%** (6.912 stmts). `--cov-fail-under`
+  72→**73** en el target `cov` del `Makefile` (criterio conservador `floor(medido)−1`, ~1.26 pts de
+  margen) + header e histórico de `docs/COVERAGE_ROADMAP.md` con la línea del Ciclo 21.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy app/, 0
+errores) · test ✓ (**977 pass** + 2 skip, era 962: +15 nuevos) · cov ✓ (**74.26%** ≥ gate 73, era 73.18%
+/gate 72). Frontend no tocado → no aplica `frontend-lint`. No se arrancó gateway ni infra; sin procesos
+residuales. Baseline confirmado verde antes de tocar nada.
+
+**Bloqueado/pendiente:**
+- **DoD v0.1 — 2 ítems abiertos, ambos requieren humano** (sin cambios respecto a Ciclos 19/20): (1) QA
+  visual de los 4 flujos de frontend; (2) actualización del doc canónico
+  `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado de T0.
+- Routers `app/api/v1/*` aún a 0% (cubribles sin infra, mismo patrón): `agents.py` (63 stmts),
+  `budget.py` (34), `tunnel.py` (33 — el router, no el servicio ya cubierto), `sync.py` (30),
+  `audit.py` (25). Siguiente de mayor ganancia: `agents.py`.
+- Dir legacy vacío `micelia/vital-core/docs/` sigue en el árbol — anotado, no tocado (git no versiona
+  dirs vacíos; candidato a limpieza sólo si Jessicache lo aprueba explícitamente).
+- Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas las de Jessicache: hosting/DNS/TLS de
+`*.idmmortality.com` (Hito 3) y eventual retorno del funnel público.
+
+**Mañana (Ciclo 22):** seguir prioridad #3 con el siguiente router a 0% de mayor ganancia,
+`app/api/v1/agents.py` (63 stmts) — inspeccionar sus dependencias (probablemente `app.state`
+crew_manager/workflow_engine + agregación read-only) y montarlo sobre `FastAPI()` local con
+`AsyncMock`/`MagicMock`, mismo patrón; ratchet gate 73→74 si la medición lo permite. Alternativa si
+resulta bloqueado: arrancar el ratchet `mypy` hacia `strict` en `app/services/frangels/` (~99% cubierto).
+Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 20 (router calendar.py 0%→100% + ratchet gate 70→72 · verify verde 962 pass · cov 71.60→73.18%)
 
 **Contexto:** Ciclo 19 (misma fecha) dejó `make verify` verde (933 pass, cov 71.60%, gate 70) con el
