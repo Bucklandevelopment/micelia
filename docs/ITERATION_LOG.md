@@ -16,6 +16,56 @@
 
 ---
 
+## 2026-07-12 — Ciclo 22 (router agents.py 0%→100% + ratchet gate 73→74 · verify verde 993 pass · cov 74.26→75.17%)
+
+**Contexto:** Ciclo 21 (misma fecha) dejó `make verify` verde (977 pass, cov 74.26%, gate 73). Prioridad #1
+(rojo→verde) satisfecha en baseline y el hito de cobertura ≥70% (DoD v0.1) cumplido → el día vuelve a caer en
+**prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El propio Ciclo 21 recomendó como
+"Mañana (Ciclo 22)" cubrir el siguiente router a 0% de mayor ganancia (`app/api/v1/agents.py`, 63 stmts) con
+sus dependencias `app.state` (`crew_manager`/`workflow_engine`) mockeadas + ratchet del gate. Trabajo
+autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16-21.
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_agents_codex.py` (**+16 tests**). Monta `agents.router` sobre un
+  `FastAPI()` local e inyecta en `app.state` los colaboradores del sistema multi-agente: `crew_manager`
+  (`MagicMock`; `execute` = `AsyncMock` por ser `await`eado, `list_crews`/`create_crew` síncronos) y
+  `workflow_engine` (`MagicMock`; `get_runs`/`get_run` síncronos). Cubre los **6 endpoints** y sus ramas:
+  `GET /crews` (happy + 503 sin manager vía `_get_crew_manager`), `POST /crews` (happy con assert de kwargs +
+  `ValueError`→400 + validación 422 por `agents` vacío), `GET /workflows` (contra el registro real `WORKFLOWS`,
+  5 defs, sin mock — `count`, claves por workflow y `agents_used` de-duplicado), `POST /execute` (happy +
+  rama `status=="failed"`→`log.warning` + 503 sin manager, con assert de `execute` awaited), `GET /runs`
+  (proyección de campos + eco de `limit`/`offset`, validación `le=200`→422, 503 sin engine vía
+  `_get_workflow_engine`) y `GET /runs/{id}` (happy + `None`→404), más `test_requires_auth` (401/403). El
+  router queda **63/63 stmts, 100%, 0 miss**. Ni infra, ni red, ni `.env`.
+- `chore(cov)`: sube el gate `--cov-fail-under` del `Makefile` **73→74** (regla `floor(medido)−1 = floor(75.17)−1 = 74`)
+  y actualiza el comentario/nota del target `cov` (medido 74.26→75.17%). `docs/COVERAGE_ROADMAP.md`: añade la
+  medición del Ciclo 22 al histórico y tacha `agents.py` en la tabla de media prioridad (ahora cubierta).
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (Ruff `app/ sdk/ tests/`), typecheck ✓ (mypy `app/`, 0 errores),
+test ✓ (**993 pass** + 2 skip, era 977), cov ✓ (**75.17%** ≥ gate **74**). Frontend no tocado (sin `frontend-lint`).
+Sin gateway ni infra levantados (tests puros ASGI in-process); sin procesos `uvicorn`/podman residuales.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems que dependen de humano**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar el doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Routers aún a
+0% (cubribles sin infra, mismo patrón): `budget.py` (34 stmts), `tunnel.py` (33 — el router, no el servicio ya
+cubierto), `sync.py` (30), `audit.py` (25). **Siguiente de mayor ganancia: `budget.py`.** Dir legado vacío
+`micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin
+`/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 23):** seguir prioridad #3 con el siguiente router a 0% de mayor ganancia,
+`app/api/v1/budget.py` (34 stmts) — inspeccionar sus dependencias (probablemente `app.state` +
+`get_policy_engine`/quota, agregación read-only) y montarlo sobre `FastAPI()` local con `AsyncMock`/`MagicMock`,
+mismo patrón; ratchet gate 74→75 si la medición lo permite. Alternativa si resulta bloqueado: arrancar el ratchet
+`mypy` hacia `strict` en `app/services/frangels/` (~99% cubierto). Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 21 (router dashboard.py 0%→100% + ratchet gate 72→73 · verify verde 977 pass · cov 73.18→74.26%)
 
 **Contexto:** Ciclo 20 (misma fecha) dejó `make verify` verde (962 pass, cov 73.18%, gate 72) con el
