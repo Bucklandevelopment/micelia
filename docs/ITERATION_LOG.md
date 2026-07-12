@@ -16,6 +16,72 @@
 
 ---
 
+## 2026-07-12 — Ciclo 25 (routers sync.py + audit.py 0%→100% — CIERRA backlog de routers a 0% · verify verde 1042 pass · cov 76.14→76.94% · gate 75 sin cambio)
+
+**Contexto:** Ciclo 24 (misma fecha) dejó `make verify` verde (1021 pass, cov 76.14%, gate 75). Prioridad #1
+(rojo→verde) satisfecha en baseline y el hito de cobertura ≥70% (DoD v0.1) cumplido → el día vuelve a caer en
+**prioridad #3 del protocolo (roadmap: subir cobertura hacia v0.2)**. El propio Ciclo 24 recomendó como
+"Mañana (Ciclo 25)" cubrir `app/api/v1/sync.py` (30 stmts) y luego `app/api/v1/audit.py` (25 stmts) — **los dos
+últimos routers a 0%**. Este ciclo los cubre **ambos** para **cerrar el backlog de routers sin tests**. Trabajo
+autónomo-seguro: sin infra, sin red, sin `.env`/secretos, sin `uv.lock`; mismo patrón de Ciclos 16-24. Baseline
+confirmado verde antes de tocar nada (1021 pass, 76.14%; `sync.py` 30/30 y `audit.py` 25/25 a 0%).
+
+**Hecho (4 commits atómicos):**
+- `test(api)` (`sync.py`): nuevo `tests/test_api_sync_codex.py` (**+9 tests**). Monta `sync.router` sobre un
+  `FastAPI()` local. **Patrón `app.state`** (como `dashboard.py`/`agents.py`): el router lee el servicio desde
+  `request.app.state.md_sync`, así que el fake se **inyecta en `app.state`** (no monkeypatch de import); ausente →
+  `getattr(..., None)` → rama "not initialized". El fake `md_sync` (`MagicMock`): `get_status` síncrono →
+  `MagicMock`; `full_sync`/`get_today_inbox_md` **awaited** → `AsyncMock`. Cubre los **3 endpoints** y sus ramas:
+  `GET /status` (sin servicio→`disabled`; con servicio→delega en `get_status`, `assert_called_once_with()`),
+  `POST /run` (sin servicio→`error` + `full_sync` **no** awaited; con servicio→`await full_sync` + respuesta
+  `{status:ok, timestamp, result}` con `result` reflejado), `GET /inbox` (sin servicio→`PlainTextResponse` **503**;
+  con contenido→markdown tal cual con `media_type=text/markdown`; contenido `""`/`None` **parametrizado**→fallback
+  "# Inbox <fecha>\\n\\n_No captured prompts today._"), y `test_requires_auth` **parametrizado** sobre los 3
+  endpoints (401/403 sin `X-API-Key`). Router **30/30 stmts, 100%, 0 miss**. Ni infra, ni red, ni `.env`.
+- `test(api)` (`audit.py`): nuevo `tests/test_api_audit_codex.py` (**+12 tests**). Monta `audit.router` sobre un
+  `FastAPI()` local. **Patrón import a nivel de módulo** (como `budget.py`/`tunnel.py`): el router obtiene el
+  servicio por `from app.services.entire_session import get_entire_service`, así que se monkeypatchea el nombre ya
+  enlazado en el namespace del módulo: `monkeypatch.setattr("app.api.v1.audit.get_entire_service", lambda: fake)`
+  → el singleton real (`EntireSessionService`) nunca se construye. El fake es un `MagicMock` **síncrono** (ningún
+  método se `await`ea). Cubre los **4 endpoints** y sus ramas: `GET /status` (delega en `get_status`), `GET
+  /sessions` (defaults `limit=50`/`offset=0` + **eco** con assert de kwargs `limit`/`offset`; `total=len(sessions)`),
+  `GET /sessions/{id}` (encontrado→sesión; `None`→**404** `"Session not found"`), `GET /prompts/{id}/sessions`
+  (`{prompt_id, sessions}`), y `test_requires_auth` **parametrizado** (401/403). Router **25/25 stmts, 100%, 0
+  miss**. Ni infra, ni red, ni `.env`.
+- `chore(cov)`: ambos routers suben el total 76.14%→**76.94%** (6.912 stmts). **Ratchet no-op**: la regla
+  conservadora del log es `floor(medido)−1 = floor(76.94)−1 = 75`, así que el gate `--cov-fail-under` del `Makefile`
+  **se mantiene en 75** (subir a 76 exigiría medir ≥77%). `Makefile`: solo el comentario/nota del target `cov`
+  (medido 76.14→76.94%). `docs/COVERAGE_ROADMAP.md`: header (última medición 76.14→76.94%, margen +6.94) + línea del
+  Ciclo 25 en el histórico anotando el ratchet no-op y el cierre del backlog de routers a 0%.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (Ruff `app/ sdk/ tests/`), typecheck ✓ (mypy `app/`, 0 errores),
+test ✓ (**1042 pass** + 2 skip, era 1021: +21 nuevos), cov ✓ (**76.94%** ≥ gate **75**). Frontend no tocado (sin
+`frontend-lint`). Sin gateway ni infra levantados (tests puros ASGI in-process); sin procesos `uvicorn`/podman
+residuales.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems que dependen de humano**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar el doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. **Ya no quedan
+routers a 0%** — backlog de routers cerrado (`prompts`, `routine`, `mcp`, `skills`, `calendar`, `dashboard`,
+`agents`, `budget`, `tunnel`, `sync`, `audit` todos cubiertos). Dir legado vacío `micelia/vital-core/docs/` sigue en
+árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache,
+Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 26):** sin routers a 0% restantes, **pivotar** de "cubrir routers" a subir cobertura donde más
+falta. Dos candidatos de mayor valor: (a) `app/services/osascript.py` (318 stmts, **24%** — el mayor bloque sin
+cubrir del proyecto; ~242 stmts miss, integración macOS — evaluar cuánto es testeable sin `osascript` real vía
+mocks de subprocess, o marcar lo no-testeable); (b) arrancar el ratchet `mypy strict` en `app/services/frangels/`
+(~99% cubierto, superficie acotada). Recomendado: empezar por (a) acotando a los helpers puros/parseables de
+`osascript.py` con `create_subprocess_exec` mockeado (patrón Ciclo 12 de `entire_session.py`), midiendo ganancia
+antes de comprometer el gate. Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 24 (router tunnel.py 0%→100% + ratchet gate 74→75 · verify verde 1021 pass · cov 75.67→76.14%)
 
 **Contexto:** Ciclo 23 (misma fecha) dejó `make verify` verde (1008 pass, cov 75.67%, gate 74). Prioridad #1
