@@ -68,6 +68,8 @@ async def create_skill(data: SkillCreate, request: Request):
             metadata=data.metadata,
         )
         return skill
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -86,6 +88,8 @@ async def list_skills(request: Request):
             "count": len(skills),
             "active": len([s for s in skills if s.get("is_active")]),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"Failed to list skills: {e}")
         raise HTTPException(status_code=500, detail=str(e))

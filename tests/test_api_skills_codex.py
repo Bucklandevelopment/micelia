@@ -8,9 +8,10 @@ tests), so here we drive the HTTP contract over a fresh FastAPI app with an
 RuntimeError) are driven through ``GET /skills/{slug}`` with
 ``get_skills_manager`` monkeypatched — the real singleton is never touched.
 
-Known quirk (pinned, not fixed here): ``list_skills``/``create_skill`` lack an
-``except HTTPException: raise`` clause, so the 503 from ``_get_manager``
-surfaces as a 500 on those routes.
+Former quirk (fixed in Ciclo 19): ``list_skills``/``create_skill`` now carry an
+``except HTTPException: raise`` clause like every sibling endpoint, so the 503
+from ``_get_manager`` (store not initialized) surfaces as a 503 on those routes
+instead of being swallowed into a 500.
 """
 
 import contextlib
@@ -363,12 +364,22 @@ async def test_manager_fallback_runtime_error_503(monkeypatch):
     assert "not ready" in resp.json()["detail"]
 
 
-async def test_list_skills_quirk_503_becomes_500():
-    # QUIRK: list_skills has no `except HTTPException: raise`, so the 503
-    # raised by _get_manager is swallowed by the generic handler -> 500.
+async def test_list_skills_missing_store_503():
+    # Fixed in Ciclo 19: list_skills now re-raises HTTPException, so the 503
+    # from _get_manager surfaces intact instead of becoming a 500.
     async with client_for(build_app()) as ac:
         resp = await ac.get("/api/v1/skills", headers=AUTH)
-    assert resp.status_code == 500
+    assert resp.status_code == 503
+    assert "prompt_store not initialized" in resp.json()["detail"]
+
+
+async def test_create_skill_missing_store_503():
+    # Fixed in Ciclo 19: create_skill re-raises the 503 from _get_manager
+    # (store not initialized) instead of swallowing it into a 500.
+    async with client_for(build_app()) as ac:
+        resp = await ac.post("/api/v1/skills", json=CREATE_PAYLOAD, headers=AUTH)
+    assert resp.status_code == 503
+    assert "prompt_store not initialized" in resp.json()["detail"]
 
 
 # ==================== auth ====================
