@@ -16,6 +16,75 @@
 
 ---
 
+## 2026-07-12 — Ciclo 18 (routers mcp 0%→100% + skills 0%→100% · gate 67→70 · total 67.85→71.58% · **HITO DoD ≥70% ALCANZADO**)
+
+**Contexto:** Ciclo 17 (misma fecha, ejecución anterior) dejó verify verde (866 pass, cov 67.85%,
+gate 67) y recomendó cubrir el siguiente router a 0% de mayor ganancia. Prioridad #1 (red→green)
+satisfecha → prioridad #3 (cobertura hacia el 70% del DoD). Cálculo previo: `mcp.py` solo (133
+stmts) dejaría ~69.7% (corto), así que este ciclo cubre **ambos** candidatos con servicio backing
+al 100%: `mcp.py` + `skills.py` (258 stmts) → cruza el 70%.
+
+**Hecho (4 commits atómicos):**
+- `test(api)` (`73a6b53`): nuevo `tests/test_api_mcp_codex.py` (**+35 tests**). Monta `mcp.router`
+  sobre `FastAPI()` local con `get_mcp_generator` monkeypatcheado a `MagicMock` **síncrono** (el
+  singleton real nunca se construye → sin escrituras a disco). Cubre el helper puro
+  `_parse_prompt_to_spec` en directo (nombre por "called X" — ojo: el regex matchea leftmost, un
+  prompt que empiece por create/build/make captura la palabra siguiente; fallback 3 primeras
+  palabras; fallback `mcp-server`; tools por bullets; filtro de tokens ≤2 chars; cap de 10 tools;
+  tool `process` por defecto; descripción truncada a 200) y los 8 endpoints con todas sus ramas:
+  `/generate` (200 con kwargs exactos/400 ValueError/409 FileExistsError/500/422 name·tools·language),
+  `/from-prompt` (200 con `parsed_from_prompt`+`parsed_spec`/400/500/422), `/servers` (200/500),
+  `/servers/{id}` (200/404/500), DELETE (200/404/409 running/500), `/start` (200/404/409/500),
+  `/stop` (200/409/500), `/templates` (estático) y 401/403 sin auth. `mcp.py` **0%→100%** (133 stmts, 0 miss).
+- `test(api)` (`d2d1095`): nuevo `tests/test_api_skills_codex.py` (**+31 tests**). `AsyncMock` de
+  `SkillsManager` inyectado en `app.state.skills_manager` con retornos explícitos dict/list/bool
+  (el router hace `.get()` y `len()`). CRUD completo (POST 200 kwargs/400/500/422 · GET lista
+  count+active/500 · GET slug 200/404/500 · PATCH exclude_none/400 body vacío/404/400/500 ·
+  DELETE 200/404/500), acciones (toggle activated/**deactivated con `False is not None`**/404/500 ·
+  test 200/404/`template_used == ""` con `get_skill` None/500/422) y las ramas fallback de
+  `_get_manager` vía `GET /skills/{slug}`: sin `prompt_store` → 503, singleton fakeado
+  (`skills.get_skills_manager` monkeypatcheado) con **cache en `app.state`** verificada,
+  RuntimeError → 503. **QUIRK fijado (no corregido):** `list_skills`/`create_skill` no re-lanzan
+  `HTTPException` → el 503 de `_get_manager` aflora como **500** en esas rutas (test lo pina;
+  candidato `fix(api)` para un ciclo futuro). `skills.py` **0%→100%** (125 stmts, 0 miss).
+- `chore(cov)` (`edb1a5a`): sube `--cov-fail-under` 67→**70** (medido **71.58%**) en `Makefile` +
+  actualiza header e histórico de `docs/COVERAGE_ROADMAP.md`. **Criterio T5.1 del DoD v0.1
+  (cov ≥ 70%) CUMPLIDO.**
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy app/,
+0 errores en 66 ficheros) · test ✓ (**932 pass** + 2 skip, era 866) · cov ✓ (**71.58%** ≥ gate 70,
+era 67.85%). Frontend no tocado → no aplica `frontend-lint`. No se arrancó gateway ni infra; sin
+procesos residuales.
+
+**Bloqueado/pendiente:**
+- Routers `app/api/v1/*` aún a 0%: `calendar.py` (109 stmts), `dashboard.py` (75), `agents.py` (63),
+  `budget.py` (34), `tunnel.py` (33), `sync.py` (30), `audit.py` (25) — mismo patrón, cubribles sin
+  infra si se quiere seguir subiendo el gate (el DoD 70% ya está cumplido; margen actual +1.58 pts).
+- Quirk `skills.py`: 503 de `_get_manager` → 500 en `list_skills`/`create_skill` por falta de
+  `except HTTPException: raise` (pinado en test; candidato `fix(api)` de bajo riesgo).
+- Frontend `middleware.ts`: `PUBLIC_PATHS = ['/login']` no incluye `/register` → navegar directo a
+  `/register` sin cookie redirige a `/login`. **No se toca** (funnel APARCADO por Jessicache,
+  Ciclo 16), pero queda anotado para cuando se retome la exposición pública del funnel.
+- `osascript.py` (24%, macOS-only) y `cli.py`/`main.py` — el roadmap los marca "no testear"/E2E.
+- Restantes del DoD v0.1 (además de cov ✓): revisar strings legado (`vale`: `vital-core/docs/` vacío
+  en el árbol), QA frontend asistido (FASE 4) y release notes — ver checkboxes de `PLAN_MICELIA_v0.md`.
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas las de Jessicache: hosting/DNS/TLS de
+`*.idmmortality.com` (Hito 3) y eventual retorno del funnel público.
+
+**Mañana (Ciclo 19):** con el hito de cobertura del DoD cumplido, pasar a cerrar el resto del DoD
+v0.1 (prioridad roadmap): (1) repasar los checkboxes de `PLAN_MICELIA_v0.md` §DoD y marcar los ya
+cumplidos con evidencia (cov ≥70% ✓ hoy); (2) FASE 5 T5.2/T5.3 — revisión independiente + borrador
+de `docs/RELEASE_NOTES_MICELIA_v0.1.md` si no existe actualizado; (3) opcional si sobra
+presupuesto: `fix(api)` del quirk 503→500 en `skills.py` (añadir `except HTTPException: raise` a
+`list_skills`/`create_skill`, 2 líneas + ajustar el test pinado) o seguir con `calendar.py` (109
+stmts) para ampliar margen del gate. Sin tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 17 (cobertura router routine 0%→99% · gate 65→67 · total 65.47→67.85%)
 
 **Contexto:** Ciclo 16 (misma fecha) dejó `make verify` verde (846 pass, cov 65.47%, gate 65) y las
