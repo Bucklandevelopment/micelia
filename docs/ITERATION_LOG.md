@@ -16,6 +16,55 @@
 
 ---
 
+## 2026-07-12 — Ciclo 17 (cobertura router routine 0%→99% · gate 65→67 · total 65.47→67.85%)
+
+**Contexto:** Ciclo 16 (misma fecha) dejó `make verify` verde (846 pass, cov 65.47%, gate 65) y las
+landings APARCADAS por decisión de Jessicache → foco en el núcleo de Micelia. Prioridad #1
+(red→green) satisfecha (verify verde confirmado en baseline) → el día cae a prioridad #3
+(cobertura hacia el 70%, cadencia de Ciclos 6–16). Siguiente router de mayor ganancia a 0%
+recomendado ayer: `routine.py` (165 stmts, con su parser puro `_parse_routine_md`).
+
+**Hecho (3 commits atómicos):**
+- `test(api)`: nuevo `tests/test_api_routine_codex.py` (**+20 tests**). Monta `routine.router` sobre
+  un `FastAPI()` local; redirige `routine.ROUTINE_FILE` a un fixture temporal (`tmp_path`) que
+  ejercita **todas** las ramas del parser (frontmatter tipado: string / lista YAML `[..]` /
+  `true`/`false` → bool / dígito → int; actividades con time citado y sin citar (regex), duración
+  no-numérica → default 30, descripción inline y multilínea `>` con salto de párrafo). Cubre los
+  3 helpers puros (`_parse_routine_md`, `_compute_event_times`, `_tz_offset_for` con tz DST-aware
+  Madrid +02/+01, offset negativo y fallback `+00:00` para tz inválida) y los 2 endpoints:
+  `GET /today` (200 / 404 file-not-found / 500 parse-error / 401 sin auth) y `POST /sync`
+  (403 gcal desconectado / 3 eventos creados / errores por evento / `create_prompts` con y sin
+  `prompt_store` / error al crear prompt / params `date`+`calendar_id` propagados / 404 / 500).
+  `get_google_calendar` fakeado (`is_connected` sync + `create_event` `AsyncMock`) y `prompt_store`
+  `AsyncMock` en `app.state`. Sin Google Calendar / DB / red / subprocess. `routine.py` **0%→99%**
+  (165 stmts, 1 miss — línea 191 `raise ValueError("no utcoffset")`, inalcanzable: un `ZoneInfo`
+  válido siempre devuelve offset).
+- `chore(cov)`: sube `--cov-fail-under` 65→**67** (medido 67.85%) en `Makefile` + actualiza header
+  de `docs/COVERAGE_ROADMAP.md` con la medición de hoy.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff app/ sdk/ tests/) · typecheck ✓ (mypy app/,
+0 errores) · test ✓ (**866 pass** + 2 skip, era 846) · cov ✓ (**67.85%** ≥ gate 67, era 65.47%).
+Frontend no tocado → no aplica `frontend-lint`. No se arrancó gateway ni infra; sin procesos
+residuales.
+
+**Bloqueado/pendiente:**
+- Otros routers `app/api/v1/*` siguen a 0%: `calendar.py` (109 stmts), `skills.py` (125), `mcp.py`
+  (133), `agents.py` (63), `dashboard.py` (75), `budget.py` (34), `audit.py` (25), `sync.py` (30),
+  `tunnel.py` (33) — mismo patrón de DI por `app.state` / singleton de servicio, cubribles sin infra
+  (prioridad #3 hacia el 70% del DoD). `mcp.py`/`skills.py` con servicio backing al 100%.
+- `osascript.py` (24%, macOS-only) y `cli.py`/`main.py` — el roadmap los marca "no testear"/E2E.
+
+**Mañana (Ciclo 18):** seguir prioridad #3 — cubrir el siguiente router de mayor ganancia a 0%.
+Candidatos por statements: `mcp.py` (133, servicio `mcp_generator` 100%, con `_parse_prompt_to_spec`
+puro heurístico) o `skills.py` (125, `skills_manager` 100%) o `calendar.py` (109). Mismo patrón
+`FastAPI()` local + fake del singleton de servicio, sin tocar infra ni `uv.lock`. Emparejar con
+ratchet del gate. Objetivo DoD: cov ≥ 70% (a ~2 pts, alcanzable en 1 router más).
+
+**IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 16 (cobertura router prompts 0%→93% · fix ruta /prompts/lists oculta · landings APARCADAS)
 
 **Contexto:** Ciclo 15 dejó `make verify` verde (788 pass, cov 61.87%, gate 61%). Prioridad #1
