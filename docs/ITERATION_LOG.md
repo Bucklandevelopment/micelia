@@ -16,6 +16,67 @@
 
 ---
 
+## 2026-07-13 — Ciclo 34 (RECONCILIACIÓN: `app/core/security.py` 76→100% + funnel nativo `/register` público + runbook infra idmmortality · verify verde 1419 pass limpio · cov 92.62% limpio · gate 90→91)
+
+**Contexto:** al orientarme encontré el árbol con trabajo de Ciclo 34 **hecho pero SIN committear ni loguear** por
+una ejecución previa de hoy (~18:07–18:14): (a) tests de `app/core/security.py`, Makefile gate 90→91 y roadmap ya
+actualizados; (b) frontend funnel (`middleware.ts` + `mocks/handlers.ts`); (c) `docs/FUNNEL_IDMMORTALITY_RUNBOOK.md`
+nuevo. Último commit era Ciclo 33 (`9a59117`) y el log cerraba en Ciclo 33. Por la regla de Jessicache («no dejar
+rutinas en estado solo-plan») y el DoD (commits atómicos + log), la tarea del día fue **reconciliar**: verificar en
+verde, committear de forma atómica y registrar. NO rehíce el trabajo (guardarraíl «no repitas trabajo hecho»); lo
+verifiqué y lo cerré. El fichero suelto ajeno `tests/test_api_prompts_codex.py` (arrastrado desde Ciclo 27, +44
+líneas nuevas) se deja **sin committear** como siempre y la cobertura limpia se mide stasheándolo.
+
+**Hecho (4 commits atómicos):**
+- `test(core)` (`693fd2e`): `tests/test_core_security_codex.py`, **+52 tests**, superficie de auth cubierta
+  in-process sin infra/red/`.env`. `APIKeyManager` (`_load_default_keys` master+readonly + skip placeholder/None,
+  `validate_key`, `has_permission` all/specific/none, `generate_key`), `RateLimiter` (bajo/límite/custom,
+  `_cleanup_old_requests` purgando stale, `get_limit_for_key` tier/default/desconocido), `AppleScriptSanitizer`
+  (`sanitize_string` vacío/truncado/peligroso→`ValueError`/escape/control-chars, `validate_url`/`validate_path`
+  con localhost/traversal/debug, `is_safe`), `AuditLogger` (store None/OK-awaited/lanza-tragado, masking de key,
+  `client` None→`unknown`), `JWTAuthManager` (**jose+passlib reales**: verify sin/con hash, `hash_password` `$2`,
+  roundtrip access/refresh — también vigila la cripto del funnel register→login), y las dependencias FastAPI
+  (`verify_auth`, `verify_api_key`, `check_rate_limit` 429+headers, `require_write_permission`, `osascript_security`,
+  `verify_api_key_global`, `add_security_headers`, `OSAScriptSecurityContext` disabled/high-risk-prod/allow/normal/
+  async-CM). `Request` = fake `SimpleNamespace`; singletons de módulo reemplazados por instancias frescas (fixture
+  autouse). Reporte term-missing: `security.py` **257/257, 0 miss, 100%**.
+- `chore(cov)` (`179cbf7`): **ratchet gate 90→91** (`floor(92.62)−1 = 91`) en `Makefile` (`--cov-fail-under=91` +
+  nota) y `docs/COVERAGE_ROADMAP.md` (cabecera 91.72→92.62% + entrada Ciclo 34 + `security.py` marcado 100%).
+- `feat(frontend)` (`c402a4c`): cierra la **mitad LOCAL** del funnel nativo. `middleware.ts`: `/register` añadido a
+  `PUBLIC_PATHS` (sin esto el middleware rebota a `/login` a no autenticados → registro inalcanzable).
+  `mocks/handlers.ts`: mock MSW de `POST /api/v1/auth/register` reproduciendo el `201`+par de tokens del backend
+  real (auto-login) para `dev:mock`. La página `/register` y `authApi.register` ya existían (committeados Ciclo 16).
+  `make frontend-lint` (lint + type-check) ✓.
+- `docs(funnel)`: `docs/FUNNEL_IDMMORTALITY_RUNBOOK.md` (mitad **INFRA** del funnel, ejecución **humana**) + esta
+  entrada. El runbook documenta DNS/TLS/hosting/secretos/Postgres-prod como **DECISIÓN PENDIENTE** (DP-1..DP-4 para
+  Jessicache) y deja explícito que la rutina **nunca** ejecuta esos pasos (solo mantiene el doc).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy, 0 errores), test ✓ (**1419 pass** +
+2 skip en checkout limpio, era 1367 en Ciclo 33: +52; 1437 con el fichero suelto), cov ✓ (**92.62%** limpio /
+92.88% con el suelto, ambos ≥ gate **91**). Frontend: `make frontend-lint` ✓ (ESLint 0 + `tsc --noEmit` 0). Se
+revirtió el churn de `frontend/tsconfig.tsbuildinfo` (artefacto de build) para no ensuciar el commit. Sin procesos
+residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — siguen los **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de
+frontend; (2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel nativo: mitad LOCAL cerrada
+(rutas + middleware + mock + `auth.py`/`user_store.py` ya al 100%); mitad INFRA bloqueada por DP-1..DP-4 (runbook).
+Cobertura: cerrado el primer módulo del eje de **seguridad**; mayores restantes con valor real → `app/api/v1/health.py`
+(62, 92%), `app/core/config.py` (136, 92%), `app/api/v1/prompts.py` (267, 93%, 18 miss tails). `app/cli.py` (218, 0%)
+y `app/main.py` (186, 0%) siguen intencionalmente sin cubrir (CLI vía subprocess / lifespan ya ejercitado en E2E).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva de código. Siguen abiertas: (a) fichero suelto sin
+committear `tests/test_api_prompts_codex.py` (arrastrado desde Ciclo 27; cobertura limpia medida con stash — no se
+toca); (b) **DP-1..DP-4** del funnel (hosting ngrok-vs-VPS / mapa DNS de `*.idmmortality.com` / gestión de secretos
+prod / Postgres de usuarios) — detalladas en `docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`. Bloquean el arranque público
+del funnel; ninguna es ejecutable por la rutina (todas caen en guardarraíles).
+
+**Mañana (Ciclo 35):** recomendado cerrar los tails de bajo riesgo que quedan como colas: `app/api/v1/prompts.py`
+(18 miss) + `app/api/v1/health.py` (5 miss) + `app/core/config.py` (11 miss) en un ciclo único de cobertura, todos
+cubribles in-process sin arrancar recursos. Alternativa: seguir el eje de seguridad si aparece un módulo con valor.
+No tocar infra ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 33 (`app/events/store.py` 47→100% — abre el eje de PERSISTENCIA/event-store · verify verde 1367 pass limpio · cov 91.72% limpio · gate 89→90)
 
 **Contexto:** `make verify` estaba VERDE al cierre de Ciclo 32 → no aplica prioridad #1 (red→green). El roadmap
