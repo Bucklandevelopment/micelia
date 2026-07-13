@@ -613,3 +613,47 @@ async def test_invalid_api_key_401():
             "/api/v1/prompts/stats", headers={"X-API-Key": "bogus-key"}
         )
     assert r.status_code == 401
+
+
+# ==================== STORE UNAVAILABLE (503) ====================
+#
+# Every endpoint guards on `request.app.state.prompt_store`; when it is None the
+# handler raises HTTPException(503, "Prompt system not available") before any
+# store call. Bodies below are the minimal valid payload so request validation
+# passes and execution reaches that guard (covers the previously-uncovered 503
+# branch on each endpoint).
+
+_PID = "11111111-1111-1111-1111-111111111111"
+
+_UNAVAILABLE_CASES = [
+    ("post", "/api/v1/prompts", {"content": "x"}),
+    ("get", "/api/v1/prompts/staging", None),
+    ("get", "/api/v1/prompts/archive", None),
+    ("get", f"/api/v1/prompts/{_PID}", None),
+    ("patch", f"/api/v1/prompts/{_PID}", {"content": "x"}),
+    ("delete", f"/api/v1/prompts/{_PID}", None),
+    ("post", f"/api/v1/prompts/{_PID}/retry", None),
+    ("post", f"/api/v1/prompts/{_PID}/classify", {"category": "work"}),
+    ("post", f"/api/v1/prompts/{_PID}/stage", None),
+    ("post", f"/api/v1/prompts/{_PID}/approve", None),
+    ("post", f"/api/v1/prompts/{_PID}/archive", None),
+    ("post", f"/api/v1/prompts/{_PID}/promote/list", {"list_slug": "s"}),
+    ("post", f"/api/v1/prompts/{_PID}/promote/skill", {"name": "n", "trigger_pattern": "t"}),
+    ("post", f"/api/v1/prompts/{_PID}/promote/mcp", None),
+    ("post", "/api/v1/prompts/lists", {"name": "n"}),
+    ("get", "/api/v1/prompts/lists/some-slug", None),
+    ("patch", "/api/v1/prompts/lists/some-slug", {"description": "d"}),
+    ("delete", "/api/v1/prompts/lists/some-slug", None),
+]
+
+
+@pytest.mark.parametrize("method,path,body", _UNAVAILABLE_CASES)
+async def test_endpoint_returns_503_when_store_unavailable(method, path, body):
+    app = build_app(store=None)
+    async with client_for(app) as c:
+        kwargs = {"headers": AUTH}
+        if body is not None:
+            kwargs["json"] = body
+        r = await getattr(c, method)(path, **kwargs)
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Prompt system not available"
