@@ -16,6 +16,73 @@
 
 ---
 
+## 2026-07-13 — Ciclo 35 (`app/core/config.py` 92→100% + ramas de estado de `app/api/v1/health.py` — colas de bajo riesgo · verify verde 1438 pass limpio · cov 92.85% limpio · gate 91 no-op)
+
+**Contexto:** `make verify` estaba VERDE al cierre de Ciclo 34 → no aplica prioridad #1 (red→green). El roadmap v0.1
+sigue cerrado salvo los 2 ítems humano-dependientes, así que el día cae en **prioridad #3 (subir cobertura)**. Ciclo 34
+recomendaba cerrar en un ciclo único las colas de `prompts.py` (18 miss) + `health.py` (5 miss) + `config.py` (11 miss).
+**Descubrimiento al orientarme:** las 18 colas de `503` de `prompts.py` **ya están cubiertas** por las +44 líneas del
+fichero suelto sin committear `tests/test_api_prompts_codex.py` (bloque `_UNAVAILABLE_CASES` parametrizado, arrastrado
+desde Ciclo 27). El commit base de ese fichero (615 líneas) sólo cubre 5 rutas 503; las 18 restantes viven en el diff
+sin committear. Como la cobertura limpia se mide **stasheando** ese fichero, `prompts.py` aparece con 18 miss en la
+medición limpia, pero escribir tests nuevos los **duplicaría** al 100% (misma tabla método/ruta). Por el guardarraíl
+«no repitas trabajo hecho» y para no crear dos parametrizaciones redundantes de las mismas rutas, **se dejó `prompts.py`
+intacto** y el día se enfocó en las otras dos colas, que son colisión-cero: `config.py` y `health.py`. Trabajo
+autónomo-seguro: dos ficheros de tests nuevos + roadmap, sin infra/red/`.env`/`uv.lock`, sin tocar runtime.
+
+**Hecho (4 commits atómicos):**
+- `test(config)`: `tests/test_core_config_codex.py`, **+14 casos**. `Settings` instanciado con kwargs explícitos +
+  `_env_file=None` (en pydantic-settings los kwargs de init ganan a env y a `.env`, así el `.env` real del repo nunca
+  se lee → determinista y sin tocar secretos). Cubre los dos `field_validator` de aviso de seguridad
+  (`secret_key`/`system_api_key` en su default `change-me-in-production`→`UserWarning` vía `pytest.warns`; valores
+  no-default→sin warning bajo `simplefilter("error")`), `parse_cors_origins` (JSON-string→`json.loads` + passthrough de
+  lista), `parse_disabled_operations` (None/`""`→`[]` + CSV con `strip` y descarte de vacíos), `parse_allowed_paths`
+  (None/`""`→defaults `/Users//tmp//var/folders` + CSV), la propiedad `is_production` (production/development) y
+  `services` (6 `ServiceConfig` con url/enabled/timeout reflejados), y `get_settings` como singleton `lru_cache`.
+  Reporte term-missing: `config.py` **136/136, 0 miss, 100%**.
+- `test(api)`: `tests/test_api_health_branches_codex.py`, **+5 casos**. Las ramas de estado que `test_health.py` (nivel
+  endpoint, todo healthy) no alcanza, llamando los handlers **directo** con un `Request` fake (`SimpleNamespace` con
+  `app.state.service_registry`) y `check_service`=`AsyncMock` (uniforme por `return_value` o secuencia por
+  `side_effect`): `readiness_check` "not_ready" (ambos servicios críticos down) además del "ready"; y las 3 ramas de
+  `overall_status` de `/detailed` — healthy (todos up), degraded (mixto: primero up + resto down → `any_healthy` sin
+  `all_healthy`), unhealthy (todos down). Sin ASGI ni infra. Cierra las líneas 55/82/87-90; los restos de `health.py`
+  (endpoints básicos) los cubre `test_health.py` en la corrida completa.
+- `docs(cov)`: `docs/COVERAGE_ROADMAP.md` — cabecera 92.62→**92.85%** (+ margen DoD +22.85) y entrada Ciclo 35 en la
+  cadena histórica (config.py 100%, health branches, ratchet **no-op**: `floor(92.85)−1 = 91` = gate actual). Sin
+  cambio en `Makefile` (no hay ratchet este ciclo).
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff, tras ordenar imports del test de health), typecheck ✓ (mypy
+sobre `app/`, 0 errores — los tests no entran en el scope de mypy), test ✓ (**1438 pass** + 2 skip en checkout limpio,
+era 1419 en Ciclo 34: +19), cov ✓ (**92.85%** limpio, ≥ gate **91**). Frontend no tocado. Sin procesos residuales
+(tests in-process, sin Docker; no arranqué gateway ni infra).
+- **Medición honesta:** el fichero suelto ajeno `tests/test_api_prompts_codex.py` sigue sin committear; el % limpio se
+  mide stasheándolo antes de `verify` (así se corrió). Nota: pyright (LSP) marca los `SimpleNamespace`-como-`Request` y
+  el unpack de kwargs de `Settings` como avisos de tipo en los tests, pero el gate de tipos del proyecto es **mypy
+  sobre `app/`**, que no escanea `tests/` → verify verde; es el mismo patrón ya aceptado en los `*_codex.py` previos.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (runbook). Cobertura: mayores restantes con valor real → `app/api/v1/prompts.py` (18 miss,
+**ya cubiertos por el fichero suelto** — no re-escribir), `app/api/v1/health.py` (colas restantes = endpoints básicos
+ya cubiertos por `test_health.py`). `app/cli.py` (218, 0%) y `app/main.py` (186, 0%) siguen intencionalmente sin
+cubrir (CLI vía subprocess / lifespan ya ejercitado en E2E).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva de código. **Elevada de prioridad** la del fichero suelto
+`tests/test_api_prompts_codex.py`: ya no es sólo «ruido de medición», es que **contiene la única cobertura de las 18
+colas 503 de `prompts.py`** que las rutinas siguen recomendando cerrar. Recomendación para Jessicache: **decidir si se
+committea** ese diff (+44 líneas, un bloque parametrizado limpio y verde) para que la cobertura de `prompts.py` sea
+real en checkout limpio y deje de aparecer como «pendiente». La rutina no lo committea por guardarraíl (fichero ajeno
+arrastrado desde Ciclo 27). Siguen abiertas también: DP-1..DP-4 del funnel (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`).
+
+**Mañana (Ciclo 36):** con las colas de bajo riesgo agotadas (config al 100%, health/prompts ya cubiertos —el último
+en el fichero suelto), el siguiente bloque con valor real es un módulo del eje que aún tenga superficie: candidatos
+`app/api/v1/prompts.py` **sólo si Jessicache decide committear el fichero suelto** (entonces `prompts.py` cerraría a
+~100% sin trabajo nuevo), o retomar cobertura de `app/api/v1/ai.py` si tiene miss con valor. Evitar `cli.py`/`main.py`
+(cubiertos por otras vías). No tocar infra ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 34 (RECONCILIACIÓN: `app/core/security.py` 76→100% + funnel nativo `/register` público + runbook infra idmmortality · verify verde 1419 pass limpio · cov 92.62% limpio · gate 90→91)
 
 **Contexto:** al orientarme encontré el árbol con trabajo de Ciclo 34 **hecho pero SIN committear ni loguear** por
