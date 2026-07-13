@@ -84,6 +84,24 @@ def test_priority_invalid_created_swallowed(agent, monkeypatch):
     assert agent._calculate_priority({"priority": 5, "created_at": "bad"}) == 5
 
 
+def test_priority_scheduled_naive_is_coerced_to_utc(agent, monkeypatch):
+    # scheduled_at SIN zona (naive ISO) -> línea 207 lo normaliza a UTC antes de
+    # restar contra now(UTC); a +120s se aplica el +5 de "scheduled soon".
+    monkeypatch.setattr(pa, "datetime", _FakeDT)
+    naive_soon = (FIXED_NOW.replace(tzinfo=None) + timedelta(seconds=120)).isoformat()
+    assert "+" not in naive_soon and "Z" not in naive_soon  # confirm naive
+    assert agent._calculate_priority({"priority": 3, "scheduled_at": naive_soon}) == 8
+
+
+def test_priority_created_naive_is_coerced_to_utc(agent, monkeypatch):
+    # created_at SIN zona (naive ISO) -> línea 221 lo normaliza a UTC antes de
+    # calcular la edad; a -100h se aplican los boosts de antigüedad (+1 +2).
+    monkeypatch.setattr(pa, "datetime", _FakeDT)
+    naive_old = (FIXED_NOW.replace(tzinfo=None) - timedelta(hours=100)).isoformat()
+    assert "+" not in naive_old and "Z" not in naive_old  # confirm naive
+    assert agent._calculate_priority({"priority": 5, "created_at": naive_old}) == 8
+
+
 # --------------------------------------------------------------------------
 # _find_group (pure)
 # --------------------------------------------------------------------------
@@ -152,6 +170,20 @@ async def test_process_pending_event_error_swallowed():
     agent = PromptPrioritizationAgent(store, event_bus=bus)
     await agent._process_pending()  # must not raise
     store.update_prompt.assert_awaited_once()
+
+
+async def test_process_pending_sets_correlation_for_grouped_prompts():
+    # Dos prompts pendientes que comparten 2 tags -> _find_group devuelve un
+    # correlation_id -> la rama `if group_id` (línea 161) lo añade a update_fields.
+    store = AsyncMock()
+    store.get_pending_prompts.return_value = [
+        {"prompt_id": "p1", "category": "note", "priority": 5, "tags": ["alpha", "beta"]},
+        {"prompt_id": "p2", "category": "note", "priority": 5, "tags": ["alpha", "beta"]},
+    ]
+    agent = PromptPrioritizationAgent(store)
+    await agent._process_pending()
+    calls = store.update_prompt.await_args_list
+    assert any("correlation_id" in c.kwargs for c in calls)
 
 
 # --------------------------------------------------------------------------

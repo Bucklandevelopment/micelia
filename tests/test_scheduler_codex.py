@@ -118,6 +118,22 @@ async def test_sync_calendar_error_swallowed(monkeypatch):
     assert s.synced_count == 0
 
 
+async def test_sync_calendar_import_error_swallowed(monkeypatch):
+    # get_google_calendar lanza ImportError (p.ej. libs de Google ausentes) ->
+    # la rama `except ImportError` (línea 137) hace log.debug y no propaga.
+    monkeypatch.setattr(sched.settings, "google_calendar_enabled", True, raising=False)
+    import app.services.google_calendar as gc
+
+    def _boom():
+        raise ImportError("google calendar service not installed")
+
+    monkeypatch.setattr(gc, "get_google_calendar", _boom)
+
+    s = PromptScheduler()
+    await s._sync_calendar()  # no raise
+    assert s.synced_count == 0
+
+
 # --------------------------------------------------------------------------
 # get_status + singleton
 # --------------------------------------------------------------------------

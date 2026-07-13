@@ -690,3 +690,41 @@ class TestSingleton:
         b = get_google_calendar()
         assert a is b
         assert isinstance(a, GoogleCalendarService)
+
+
+class TestImportFallback:
+    """Cover the optional-dependency import guard at module load (lines 24-28).
+
+    The google client libs ARE installed in this environment (so ``GOOGLE_LIBS_AVAILABLE``
+    is normally ``True`` and the ``except ImportError`` block never runs). We reload the
+    module with those three submodules forced to ``None`` in ``sys.modules`` — which makes
+    ``from ... import ...`` raise ``ImportError`` — then restore the real modules and reload
+    back so no other test is affected.
+    """
+
+    def test_module_falls_back_when_google_libs_absent(self):
+        import importlib
+        import sys
+
+        blocked = [
+            "google.oauth2.credentials",
+            "google_auth_oauthlib.flow",
+            "googleapiclient.discovery",
+        ]
+        saved = {name: sys.modules.get(name) for name in blocked}
+        try:
+            for name in blocked:
+                sys.modules[name] = None  # -> ImportError on `from <name> import ...`
+            importlib.reload(gc)
+            assert gc.GOOGLE_LIBS_AVAILABLE is False
+            assert gc.Credentials is None
+            assert gc.Flow is None
+            assert gc.build is None
+        finally:
+            for name, mod in saved.items():
+                if mod is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = mod
+            importlib.reload(gc)  # restore real module state (libs available again)
+        assert gc.GOOGLE_LIBS_AVAILABLE is True

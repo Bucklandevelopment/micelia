@@ -217,3 +217,48 @@ async def test_continuous_monitoring_runs_one_cycle_then_cancels(registry, monke
     await registry._continuous_monitoring()
 
     assert registry.client.get.await_count >= 1  # health check ran once
+
+
+async def test_discover_services_unhealthy_multiple_hint_docker_full(client, monkeypatch):
+    # Varios dominios habilitados y TODOS caídos -> el conjunto unhealthy != {"health"}
+    # -> se toma la rama `else` con el hint "make docker-full" (línea 112).
+    from app.services import service_registry as sr
+
+    for attr in (
+        "research_service_enabled", "education_service_enabled",
+        "security_service_enabled", "ollama_code_enabled", "imperio_lab_enabled",
+        "health_service_enabled",
+    ):
+        monkeypatch.setattr(sr.settings, attr, True, raising=False)
+    client.get.return_value = _resp(503)  # response received, but unhealthy
+
+    reg = ServiceRegistry(client)
+    try:
+        await reg.discover_services()
+        unhealthy = {s.name for s in reg.services.values() if s.enabled and not s.healthy}
+        assert unhealthy != {"health"}
+        assert len(unhealthy) > 1  # forces the docker-full branch, not docker-health
+    finally:
+        await reg.stop_monitoring()
+
+
+async def test_continuous_monitoring_generic_exception_is_logged(registry, monkeypatch):
+    # Una iteración del loop lanza una excepción NO-Cancelled -> rama `except Exception`
+    # (252-254): log.error + backoff `await asyncio.sleep(5)`; la siguiente vuelta
+    # recibe CancelledError y sale limpiamente.
+    from app.services import service_registry as sr
+
+    registry.services["health"].enabled = True
+    calls = {"n": 0}
+
+    async def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("monitor boom")  # top-of-loop sleep -> except 252
+        if calls["n"] == 2:
+            return  # the backoff sleep(5) at line 254
+        raise asyncio.CancelledError  # next cycle -> clean break (250-251)
+
+    monkeypatch.setattr(sr.asyncio, "sleep", fake_sleep)
+    await registry._continuous_monitoring()  # must not raise
+    assert calls["n"] >= 3

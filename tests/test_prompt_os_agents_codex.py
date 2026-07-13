@@ -76,6 +76,14 @@ def test_extract_json_unparseable_raises():
         _extract_json("esto no tiene ningun json valido")
 
 
+def test_extract_json_brace_block_invalid_falls_through():
+    # Hay un bloque {...} pero su contenido NO es JSON válido: el regex lo
+    # captura, json.loads(brace_match) lanza JSONDecodeError (líneas 54-55
+    # except pass) y se termina en el raise ValueError final.
+    with pytest.raises(ValueError, match="Could not parse JSON"):
+        _extract_json("resultado {no es json: valido} fin")
+
+
 # ---------------------------------------------------------------------------
 # orchestrator property (lazy)
 # ---------------------------------------------------------------------------

@@ -115,6 +115,24 @@ def test_load_save_round_trip(qm, tmp_path):
     assert len(qm2._history) == 1
 
 
+def test_load_corrupt_json_is_swallowed(tmp_path):
+    # usage.json existe pero está corrupto -> json.loads lanza y la rama
+    # `except Exception` de _load (84-85) lo registra y degrada a estado vacío.
+    (tmp_path / "usage.json").write_text("{ esto no es json valido ")
+    qm2 = QuotaManager(storage_path=str(tmp_path))
+    assert qm2._usage == {}
+    assert qm2._history == []
+
+
+def test_save_write_error_is_swallowed(qm, tmp_path):
+    # usage_file apunta a un directorio -> write_text lanza IsADirectoryError,
+    # la rama `except Exception` de _save (95-96) lo registra sin propagar.
+    as_dir = tmp_path / "usage_as_dir"
+    as_dir.mkdir()
+    qm.usage_file = as_dir
+    qm._save()  # no raise
+
+
 # ---------------------------------------------------------------------------
 # can_use
 # ---------------------------------------------------------------------------
@@ -287,6 +305,19 @@ def test_best_provider_none_when_no_eligible(qm):
     # No inference angel advertises embeddings-only impossible combo here, so use an
     # impossible min_context to exclude everyone.
     assert qm.get_best_provider("inference", min_context=10_000_000) is None
+
+
+def test_best_provider_require_vision_skips_non_vision_angels(qm):
+    # require_vision=True hace `continue` (línea 292) sobre los ángeles de inferencia
+    # sin visión (deepseek/cohere/mistral/huggingface); groq (premium, con visión)
+    # sigue ganando el orden por tier.
+    assert qm.get_best_provider("inference", require_vision=True) == "groq"
+
+
+def test_best_provider_require_tools_skips_non_tool_angels(qm):
+    # require_tools=True hace `continue` (línea 294) sobre huggingface (tools=False);
+    # groq (premium, con tools) sigue ganando.
+    assert qm.get_best_provider("inference", require_tools=True) == "groq"
 
 
 # ---------------------------------------------------------------------------

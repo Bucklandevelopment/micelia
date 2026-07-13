@@ -76,6 +76,18 @@ async def test_layer_0_without_cowork(tmp_path, monkeypatch):
     assert "System:" in layer.content  # still emits settings-based identity
 
 
+async def test_layer_0_cowork_read_error_is_swallowed(tmp_path, monkeypatch):
+    # cowork.md existe (os.path.exists True) pero no es legible: es un directorio,
+    # así que open() lanza IsADirectoryError -> la rama `except Exception: pass`
+    # (103-104) lo traga y sigue con la identidad base de settings.
+    (tmp_path / "cowork.md").mkdir()
+    monkeypatch.setattr(ca.os, "getcwd", lambda: str(tmp_path))
+    asm = ContextAssembler()
+    layer = await asm._layer_0_identity()
+    assert "System:" in layer.content
+    assert "cowork.md" not in layer.content
+
+
 # --------------------------------------------------------------------------
 # Layer 1: domain (prompt list md + frontmatter stripping)
 # --------------------------------------------------------------------------
@@ -103,6 +115,17 @@ async def test_layer_1_domain_missing_file_is_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(ca.settings, "prompt_lists_dir", str(tmp_path), raising=False)
     asm = ContextAssembler()
     layer = await asm._layer_1_domain({"category": "work"})  # laboral.md absent
+    assert layer.content == ""
+
+
+async def test_layer_1_domain_read_error_is_swallowed(tmp_path, monkeypatch):
+    # El md de la lista existe pero no es legible como archivo (es un directorio):
+    # open() lanza IsADirectoryError -> `except Exception: pass` (144-145) lo traga
+    # y la capa Domain se devuelve vacía sin propagar.
+    monkeypatch.setattr(ca.settings, "prompt_lists_dir", str(tmp_path), raising=False)
+    (tmp_path / "rutina-diaria.md").mkdir()
+    asm = ContextAssembler()
+    layer = await asm._layer_1_domain({"category": "routine"})
     assert layer.content == ""
 
 
