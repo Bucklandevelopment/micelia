@@ -32,6 +32,29 @@ class ServiceRegistry:
     Registry de servicios que mantiene estado de health de cada microservicio.
     """
 
+    # Fuente ÚNICA de verdad del endpoint de health por dominio. Se consume tanto
+    # en el chequeo inicial (`discover_services`) como en el monitoreo continuo
+    # (`_continuous_monitoring`); antes estaba duplicado en ambos y podía derivar
+    # (un dominio cambia su ruta y solo se actualiza una copia → discovery y
+    # monitoring sondeando URLs distintas). Cada ruta está anclada al handler REAL
+    # que sirve el dominio hermano (verificado por lectura de su código):
+    #   - health   (biohack-app):   /api/v1/service-health  (backend/main.py:209,
+    #                                @app.get("/api/v1/service-health"))
+    #   - research (canela-molida):  /health                (app/main.py:505)
+    #   - education (ideacursi-tool): /api/health            (setGlobalPrefix('api')
+    #                                + @Controller('health') + @Get())
+    #   - security (cybertools):     /health                (src/scanet/api.py:127)
+    #   - devtools (ollama-code):    /health
+    #   - testlab  (imperio-lab):    /health
+    HEALTH_ENDPOINTS: Dict[str, str] = {
+        "health": "/api/v1/service-health",
+        "research": "/health",
+        "education": "/api/health",
+        "security": "/health",
+        "devtools": "/health",
+        "testlab": "/health",
+    }
+
     def __init__(self, http_client: httpx.AsyncClient):
         self.client = http_client
         self.services: Dict[str, ServiceInfo] = {}
@@ -41,38 +64,40 @@ class ServiceRegistry:
     async def discover_services(self):
         """Descubre y registra todos los servicios configurados"""
 
+        # El endpoint de health sale de HEALTH_ENDPOINTS (fuente única); aquí solo
+        # se definen url + enabled por dominio.
         service_configs: Dict[str, Dict[str, Any]] = {
             "health": {
                 "url": settings.health_service_url,
                 "enabled": settings.health_service_enabled,
-                "health_endpoint": "/api/v1/service-health"
+                "health_endpoint": self.HEALTH_ENDPOINTS["health"],
             },
             "research": {
                 "url": settings.research_service_url,
                 "enabled": settings.research_service_enabled,
-                "health_endpoint": "/health"
+                "health_endpoint": self.HEALTH_ENDPOINTS["research"],
             },
             "education": {
                 "url": settings.education_service_url,
                 "enabled": settings.education_service_enabled,
-                "health_endpoint": "/api/health"
+                "health_endpoint": self.HEALTH_ENDPOINTS["education"],
             },
             "security": {
                 "url": settings.security_service_url,
                 "enabled": settings.security_service_enabled,
-                "health_endpoint": "/health"
+                "health_endpoint": self.HEALTH_ENDPOINTS["security"],
             },
             # DevTools Services
             "devtools": {
                 "url": settings.ollama_code_url,
                 "enabled": settings.ollama_code_enabled,
-                "health_endpoint": "/health"
+                "health_endpoint": self.HEALTH_ENDPOINTS["devtools"],
             },
             "testlab": {
                 "url": settings.imperio_lab_url,
                 "enabled": settings.imperio_lab_enabled,
-                "health_endpoint": "/health"
-            }
+                "health_endpoint": self.HEALTH_ENDPOINTS["testlab"],
+            },
         }
 
         for name, config in service_configs.items():
@@ -224,15 +249,6 @@ class ServiceRegistry:
         Espera `_check_interval` segundos ANTES del primer ciclo para no
         duplicar el chequeo inicial que ya hizo `discover_services`.
         """
-        health_endpoints = {
-            "health": "/api/v1/service-health",
-            "research": "/health",
-            "education": "/api/health",
-            "security": "/health",
-            "devtools": "/health",
-            "testlab": "/health"
-        }
-
         while True:
             try:
                 # Esperar primero — evita re-chequear inmediatamente lo que
@@ -245,7 +261,11 @@ class ServiceRegistry:
                         # servicio que cae después de estar healthy). Los que
                         # llevan caídos desde el arranque se silencian dentro
                         # de _check_health (se logean como DEBUG).
-                        await self._check_health(name, health_endpoints[name])
+                        # Endpoint desde HEALTH_ENDPOINTS (misma fuente que el
+                        # chequeo inicial); .get() evita KeyError si algún
+                        # servicio del registry no lo declara.
+                        endpoint = self.HEALTH_ENDPOINTS.get(name, "/health")
+                        await self._check_health(name, endpoint)
 
             except asyncio.CancelledError:
                 break

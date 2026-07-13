@@ -178,6 +178,23 @@ async def test_discover_services_registers_all_and_starts_monitoring(client):
         await reg.stop_monitoring()
 
 
+async def test_health_endpoints_cover_every_registered_service(client):
+    # Invariante de coherencia: HEALTH_ENDPOINTS es la fuente ÚNICA del endpoint
+    # de health y la consumen discover_services (chequeo inicial) y
+    # _continuous_monitoring (monitoreo periódico). Si un futuro dominio se añade
+    # a discover_services pero NO a HEALTH_ENDPOINTS, el monitoreo continuo caería
+    # al fallback "/health" en silencio -> este test lo caza antes.
+    client.get.return_value = _resp(200, {"version": "1"})
+    reg = ServiceRegistry(client)
+    try:
+        await reg.discover_services()
+        assert set(reg.services) <= set(ServiceRegistry.HEALTH_ENDPOINTS), (
+            "Todo servicio registrado debe tener endpoint en HEALTH_ENDPOINTS"
+        )
+    finally:
+        await reg.stop_monitoring()
+
+
 async def test_discover_services_unhealthy_only_health_hint(client, monkeypatch):
     # Enable ONLY the 'health' domain and make it fail -> hits the consolidated
     # unhealthy-summary branch with the "make docker-health" hint.
