@@ -16,6 +16,71 @@
 
 ---
 
+## 2026-07-13 — Ciclo 39 (COHERENCIA INTER-PROYECTO #5: alinea el **cuerpo del POST de creación de curso** del pipeline `research-to-course` con el `CreateCourseDto` REAL de ideacursi — corrige un body ficticio que **reventaría ideacursi con un 500** · añade la aserción de body que faltaba · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 38 → no aplica prioridad #1 (red→green). Ciclo 38 recomendó
+explícitamente seguir en **coherencia inter-proyecto (#4)** auditando los **cuerpos/DTOs** que Micelia envía vs lo que
+los dominios esperan, en concreto (a) el `createCourseDto` de ideacursi vs el JSON del pipeline y (b) el RAGQuery/
+RAGResponse de canela (ya validado). Trabajo sobre código propio de Micelia (`app/api/v1/gateway.py` + su test); sin
+tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = código de los hermanos):**
+- **canela `/api/rag/query`** — RAGQuery = `{question: str, top_k: int (1..50, default 10)}`; RAGResponse = `{question,
+  answer: str, contexts: list[...]}` (`app/models/rag.py:311,320,453,462,471`). El pipeline envía `top_k: 20` (dentro de
+  rango) y lee `synthesis.get("answer")` → **ya correcto**. Sin cambios.
+- **ideacursi `POST /api/courses/create`** — el handler es `createCourseWithActivation` (`courses.controller.js`), que
+  llama a `createCourseIndexWithActivation` → `createCourseIndex`, y **este desestructura**
+  `const { userId, idea, description, studentLevel, language = 'en' } = createCourseDto` (`courses.service.js:99`). Además
+  `createCourseIndexWithActivation` hace `createCourseDto.userId.match(/.../)` **directamente** (`:1364`): un body **sin
+  `userId` REVIENTA ideacursi con `TypeError: Cannot read properties of undefined` → 500** (no un 4xx de validación). El
+  `ValidationPipe` global corre con `whitelist:true, forbidNonWhitelisted:true` (`main.js:47`).
+- **Contradicción encontrada (interna a Micelia, en `gateway.py`):** el pipeline enviaba el cuerpo **ficticio**
+  `{title, description, target_audience, num_modules, source_synthesis}` — **sin `userId`** (→ 500), con `title` en vez de
+  `idea` (el input generador del curso quedaba `undefined`), `target_audience` en vez del enum `studentLevel`, y dos
+  campos (`num_modules`, `source_synthesis`) que **no existen en el DTO**. Solo `description` coincidía. El **test del
+  pipeline no asertaba el cuerpo** del POST de curso (solo la ruta `/api/courses/create`), por eso el drift pasó 100%
+  desapercibido — mismo antipatrón que Ciclos 37–38 (mocks/aserts que codifican un contrato que no existe).
+
+**Hecho (1 commit atómico):**
+- `fix(gateway)`: en `app/api/v1/gateway.py`, cuerpo del POST de curso reescrito al DTO real
+  `{userId: user_id, idea: topic, description: synthesis.answer[:500], studentLevel: target_audience}`. Nuevo param
+  `user_id: str = "micelia-pipeline"` (default seguro) para cubrir el `userId` obligatorio. `title`→`idea`,
+  `target_audience`→`studentLevel` (valor "intermediate" es enum válido). Se dejan de enviar `num_modules`/
+  `source_synthesis` (forbidNonWhitelisted) y `num_modules` sale de la firma (FastAPI ignora query params extra → no
+  rompe llamadas). Comentarios que anclan cada campo a su fuente en `create-course.dto.js`/`courses.service.js`.
+  Actualiza `tests/test_api_gateway_codex.py`: nueva aserción del **body completo** del POST de curso en el test de
+  pipeline full (la cobertura que faltaba y habría cazado el drift).
+- (log en este mismo commit del día siguiente si se separa; aquí va como entrada de doc.)
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1456 pass** + 2 skip, sin cambio en el nº: se añadió una aserción a un test existente, no un test nuevo), cov ✓
+(**93.11%**, ≥ gate **92**; ratchet **no-op**, sin statements nuevos de `app/` — el body cambia valores, no ramas).
+Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** **NUEVA (DP-6, semántica de `user_id` en el pipeline):** el pipeline
+`research-to-course` no tiene contexto de usuario autenticado, así que el `userId` que exige ideacursi se rellena con un
+default fijo `"micelia-pipeline"`. En ideacursi, `createCourseIndexWithActivation` resuelve ese string a UUID vía
+`SELECT id FROM users WHERE username = $1`; si no existe tal usuario en la BD de ideacursi, el curso se sincroniza con
+`user_id` sin resolver (o falla la activación). Decidir: (a) crear/seed de un usuario de servicio `micelia-pipeline` en
+ideacursi, o (b) propagar el `user_id` real del caller autenticado del gateway hasta el pipeline. No es reversible sin
+coordinar con ideacursi → se deja anotada, no se ejecuta. Siguen abiertas **DP-5** (rebrand `vital-core`→`micelia` de
+env-vars de hermanos) y las de INFRA del funnel (**DP-1..DP-4**). Nota: el pipeline sigue **sin validación e2e live**
+contra ideacursi real; los contratos se alinean por lectura de código.
+
+**Mañana (Ciclo 40):** el pipeline queda alineado en ruta, params Y cuerpo contra los 2 dominios que toca (canela +
+ideacursi). Siguiente en **coherencia inter-proyecto (#4)**: auditar los **proxies genéricos** del gateway
+(`/gateway/{health,research,education,security}/{path}` en `SERVICE_ROUTES`) — verificar que el health-check agregado
+(`/api/v1/health/services` o equivalente) que Micelia expone use paths que los dominios realmente sirven (p.ej. biohack
+`/health`, cybertools `/health`), y que el contrato biohack (`docs/MICELIA_BIOHACK_CONTRACT.md`) no tenga más rutas
+divergentes tras las correcciones de Ciclos 37–39. Alternativa a cobertura: `cli.py`/`main.py` vía subprocess. No tocar
+infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 38 (COHERENCIA INTER-PROYECTO #4: alinea el **pipeline `research-to-course`** del gateway con los contratos reales de canela e ideacursi — 3 drifts corregidos en código propio de Micelia · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 37 → no aplica prioridad #1 (red→green). Ciclo 37 recomendó
