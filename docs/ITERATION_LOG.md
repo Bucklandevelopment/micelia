@@ -16,6 +16,81 @@
 
 ---
 
+## 2026-07-13 — Ciclo 30 (router `energy.py` 33→100% — CIERRA el mayor router descubierto restante · verify verde 1302 pass · cov 88.86% limpio · gate 86→87)
+
+**Contexto:** Ciclo 29 (misma fecha) cerró `system.py` 35→100% dejando `make verify` verde (1272 pass,
+cov 87.57% limpio, gate 86) y recomendó como "Mañana (Ciclo 30)" la opción **(a) recomendada**:
+`app/api/v1/energy.py` (133 stmts, **33%**, 89 miss) — **el mayor router descubierto que quedaba**, router
+del sistema de energía inteligente (batería/solar/red + decisiones de cómputo, 3 endpoints HTTP + 1 WebSocket
++ 3 helpers). Prioridad #1 (rojo→verde) satisfecha en baseline (confirmado antes de tocar nada: `make verify`
+verde exit 0, 1272 pass, cov 87.57%/gate 86; `energy.py` a 33% con miss 57-98,108-128,133-159,166-178,195-250,
+266-289,295-310) y hito DoD ≥70% cumplido → el día cae en **prioridad #3 (roadmap: subir cobertura)**. Trabajo
+autónomo-seguro: solo un fichero de tests + Makefile + docs, sin infra/red/`.env`/`uv.lock`, sin tocar runtime.
+
+**Hecho (3 commits atómicos):**
+- `test(api)` (`energy.py`): nuevo `tests/test_api_energy_codex.py` (**+30 tests**). Convención `_codex`
+  (plantilla `test_api_frangels_codex.py`/`test_api_sync_codex.py`). **Helpers puros** probados llamándolos
+  directo: `get_battery_status` parcheando `energy.subprocess.run` con stdout `pmset` canned — 5 ramas de
+  parseo (`\d+%` presente/ausente→fallback 100; `AC Power`/`charging`→is_charging; `H:MM remaining`→minutos
+  vs −1; `power_source` ac/battery/unknown; `except`→dict fallback). Descubierto al escribir: el código trata
+  cualquier substring `"charging"` — **incluida `"discharging"`** — como is_charging=True, así que el caso
+  batería-descargando usa stdout sin esa subcadena (documentado en el test, no es bug a arreglar en este ciclo).
+  `calculate_state` las **5 ramas** SURVIVAL/CRITICAL/CONSERVING/ABUNDANT/NORMAL; `get_recommendations` los 5
+  estados (parametrizado). **Endpoints** sobre `FastAPI()` local con `AsyncClient`+`ASGITransport` y **auth real**
+  (`api_key_manager.generate_key(permissions={"all"})` + `X-API-Key`): `/status` (NORMAL/CONSERVING/CRITICAL vía
+  `get_battery_status` parcheado + `settings.solar_api_url` None/valor→`solar_available` False/True), `/compute-
+  recommendation` (las **5 ramas** de `ComputeRecommendation` — **ABUNDANT y SURVIVAL forzadas parcheando
+  `energy.calculate_state`**, pues los endpoints fijan `is_online=True`/`solar_watts=0.0` y esos dos estados son
+  inalcanzables por la vía HTTP), `/history` (`app.state.event_store` None→`{"events":[],"message":"..."}` vs
+  `MagicMock` con `query_events=AsyncMock`→eventos con eco de `hours` + assert de kwargs `category`/`subcategory`/
+  `limit`). **WebSocket `/ws`** (patrón nuevo — **no había ningún test de websocket en el repo**): `TestClient`
+  síncrono de Starlette; `verify_auth` usa `APIKeyHeader(Security)` que **no resuelve en scope WebSocket**
+  (`TypeError: APIKeyHeader.__call__() missing ... 'request'`), así que se usa `app.dependency_overrides[verify_auth]`
+  (idiom de `test_auth_endpoints_codex.py`) para alcanzar el cuerpo; `get_battery_status` con
+  `side_effect=[dict, RuntimeError]` + `energy_check_interval=0` → una iteración: `accept`→`send_json` (1
+  `energy_update`)→`sleep(0)`→2ª llamada lanza→`except`→`finally: close()` limpio; el cliente recibe el único
+  mensaje. Auth **401/403** parametrizada en los 3 GET. **`energy.py` 133/133 stmts, 100%, 0 miss.** Ni `pmset`,
+  ni macOS, ni subprocess real, ni infra, ni red, ni `.env`.
+- `chore(cov)`: total (checkout limpio) 87.57%→**88.86%** (+1.29 pts). Ratchet **efectivo**: `floor(88.86)−1 = 87`
+  → gate `--cov-fail-under` **86→87** en `Makefile` (target `cov` + comentario + nota). `docs/COVERAGE_ROADMAP.md`:
+  header (medición 87.57→88.86% limpio, gate 86→87, margen +18.86) + entrada Ciclo 30 en el histórico.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (`ruff` app/sdk/tests), typecheck ✓ (`mypy app/`, 0 errores),
+test ✓ (**1302 pass** + 2 skip, era 1272: +30 nuevos), cov ✓ (**89.12%** con el fichero suelto ajeno /
+**88.86%** en checkout limpio, ambos ≥ gate **87**). Frontend no tocado (no aplica `frontend-lint`). Sin procesos
+residuales (ciclo solo-tests, sin runtime).
+
+> **NOTA de medición (honestidad, igual que Ciclos 27-29):** el árbol de trabajo sigue incluyendo el cambio
+> **pre-existente sin commitear ajeno a este ciclo** (`tests/test_api_prompts_codex.py`, no tocado por Ciclo 30).
+> El **árbol commiteado por este ciclo** (sin ese fichero, medido vía `git stash push` → `pytest --cov=app` →
+> `stash pop`) mide **88.86%** (1284 pass); con el fichero suelto daría 89.12% (1302 pass). El ratchet a **87**
+> se fija sobre la medición **limpia** (`floor(88.86)−1 = 87`), segura en checkout limpio (margen +1.86). Sigue
+> pendiente para Jessicache: decidir qué hacer con ese cambio suelto de `test_api_prompts_codex.py`.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura:
+con `energy.py` cerrado, **ya no quedan routers descubiertos grandes**; los mayores huecos restantes son del
+eje SDK y colas menores: `app/sdk/client.py` (197 stmts, **59%**, 80 miss — cliente HTTP del SDK, requiere
+`respx`/`httpx` mock), `app/api/v1/gateway.py` (70 stmts, 60%), `app/api/v1/events.py` (69 stmts, 68%),
+`app/api/v1/ai.py` y `app/api/v1/prompts.py` con colas. Dir legacy vacío `micelia/vital-core/docs/` sigue en
+árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por
+Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 31 — NEXT STEP):** sin routers descubiertos grandes, el eje de mayor valor pasa a ser el **SDK**:
+**`app/sdk/client.py`** (197 stmts, 59%, 80 miss — cliente HTTP del SDK; cubrir con `respx`/`httpx` mock, primer
+módulo del SDK atacado; gran superficie de una pieza). Alternativa de menor tamaño: cerrar los routers
+parcialmente cubiertos `app/api/v1/gateway.py` (70 stmts, 60%) y `app/api/v1/events.py` (69 stmts, 68%) en un
+ciclo combinado. **Recomendado: (a) `app/sdk/client.py`** por ser el mayor hueco restante y abrir el eje SDK.
+No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 29 (router `system.py` 35→100% — CIERRA el mayor bloque descubierto del proyecto · verify verde 1272 pass · cov 87.57% limpio · gate 81→86)
 
 **Contexto:** Ciclo 28 (misma fecha) cerró `frangels.py` 36→100% dejando `make verify` verde (1192 pass,
