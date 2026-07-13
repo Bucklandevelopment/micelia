@@ -16,6 +16,78 @@
 
 ---
 
+## 2026-07-13 — Ciclo 42 (COHERENCIA INTER-PROYECTO #8: audita el **contrato HealthResponse** — qué campos lee Micelia del body del health-check de cada dominio vs el shape REAL que cada uno devuelve. Micelia lee **un solo campo**, `version` (`data.get("version")`); auditados los 4 endpoints reales: biohack/ideacursi/cybertools lo emiten a nivel superior, **canela no**. Hallazgo interno: la `version` se capturaba en `ServiceInfo` pero **ServiceStatus la omitía y `check_service` la descartaba** → nunca llegaba a `/api/v1/health/{services,detailed}`. Deliverable Micelia-only: **se expone `version`** en el modelo + se propaga en `check_service` + se incluye en `/services` · +2 tests · verify verde 1459 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 41 (1458 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 41
+recomendó seguir en **coherencia inter-proyecto (#4)** auditando el **contrato de `HealthResponse`**: los campos que Micelia
+espera del health-check de cada dominio (`status`, `version`, `capabilities`, `dependencies`…) vs el shape REAL que cada uno
+devuelve. Trabajo sobre código propio de Micelia (`app/api/v1/health.py`, `app/services/service_registry.py` + sus tests);
+sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = handler de health de cada hermano):**
+- **Qué lee Micelia del body:** `ServiceRegistry._check_health` (`service_registry.py:181-186`) lee **exclusivamente**
+  `data.get("version")` (defensivo: `try/except` + `.get`). El estado `healthy` se deriva **solo** de `status_code == 200`;
+  Micelia **no lee** `status`, `capabilities` ni `dependencies` del body → esos campos no son contrato consumido, no hay drift
+  posible por ellos. El único campo de contrato-body es `version`.
+- **Shape real por dominio** (top-level `version`):
+  - **health = biohack** → `/api/v1/service-health` devuelve `{status, version:"0.1.0", service, capabilities[], dependencies{}}`
+    (`backend/main.py:209`). `version` a nivel superior ✓.
+  - **research = canela** → `/health` devuelve `{status, embedding_model, embedding_cache, vectorstore}` (`app/main.py:505`).
+    **NO emite `version`** → `service.version = None` (lectura defensiva, sin romper). Único dominio sin `version`.
+  - **education = ideacursi** → `/api/health` devuelve `{status, version:"0.1.0", service, category, port, capabilities[],
+    uptime_seconds, dependencies}` (vía `vitalCoreService.healthResponse()` o el fallback; `health.controller.js:70`). ✓.
+  - **security = cybertools** → `/health` devuelve `HealthResponse.to_dict()` (dataclass con `version:str`) o el fallback con
+    `version:SERVICE_VERSION` (`src/scanet/api.py:127`, `vital_sdk/models.py:15`). ✓.
+  - **3/4 emiten `version` top-level; canela no.** Sin drift de campos que Micelia lea (solo `version`, opcional).
+- **Contradicción encontrada (interna a Micelia, drift de estado muerto):** `_check_health` guarda la `version` en
+  `ServiceInfo.version`, pero **`ServiceStatus` (el modelo que expone la API) NO tenía campo `version`** y `check_service`
+  lo descartaba al construir el DTO. Resultado: la `version` que Micelia lee de 3/4 dominios **no llegaba a ningún endpoint**
+  (`/api/v1/health/services` ni `/detailed` la devolvían). Mismo antipatrón de fondo que Ciclos 37–41: un dato del contrato
+  que se captura pero se pierde por una capa intermedia incompleta. `test_check_health_ok_sets_healthy_and_version` probaba
+  que se **captura**, pero ningún test probaba que se **propaga** → el hueco pasó desapercibido.
+
+**Hecho (1 commit atómico `feat(health)`):**
+- `ServiceStatus` (`app/api/v1/health.py`) gana `version: str | None = None`, con comentario que ancla el contrato auditado
+  (qué dominio emite `version` y cuál no) y remite a **DP-8**. `SystemHealth.services` es `Dict[str, ServiceStatus]` → `/detailed`
+  la expone automáticamente vía `response_model`.
+- `ServiceRegistry.check_service` (`service_registry.py`) propaga `version=service.version` al construir el `ServiceStatus`.
+- `/api/v1/health/services` incluye `"version": status.version` en el dict por servicio.
+- **+2 tests:** `test_check_service_found` ahora fija `ServiceInfo.version="1.2.3"` y asserta que `check_service` lo propaga;
+  nuevo `test_check_service_version_defaults_none_when_domain_omits_it` (rama canela: `version=None` propaga None sin romper);
+  `test_services_status` asserta que cada entrada de `/services` incluye la clave `version`. Cambio **aditivo y
+  retrocompatible** (campo nuevo opcional; no rompe consumidores existentes).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1459 pass** + 2 skip, era 1458 en Ciclo 41: **+1** neto — se añadió 1 test nuevo de registry
+[`test_check_service_version_defaults_none…`] y se reforzaron 2 tests existentes [`test_check_service_found`,
+`test_services_status`] con nuevas asserts sin sumar función), cov ✓ (**93.12%**, ≥ gate **92**; +1 statement de `app/` = la
+línea `version=service.version`, ratchet **no-op**:
+`floor(93.11)−1 = 92`). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** **NUEVA — DP-8 (canela no emite `version` en su health-check):** de los 4 dominios,
+`canela-molida` (`/health`) es el único que **no devuelve `version` a nivel superior** (devuelve `embedding_model`,
+`embedding_cache`, `vectorstore`), así que en el registry/dashboard aparecerá siempre con `version: null`. No es un bug (Micelia
+degrada limpio), pero rompe la homogeneidad del panel. Alinear canela al formato estándar `HealthResponse` (`{status, version,
+service, category, capabilities, dependencies}`) que ya usan biohack/ideacursi/cybertools es **deep-work en un hermano** →
+fuera del scope de esta rutina (guardarraíl: no desarrollo profundo de dominios). Recomendación: añadir `version` (y opcional el
+resto del contrato estándar) al `/health` de canela en una tarea propia de ese dominio. Siguen abiertas **DP-7** (namespace de
+canal `idm/vital/micelia`), **DP-6** (semántica de `user_id` en el pipeline research-to-course), **DP-5** (rebrand env-vars) y
+las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 43):** el contrato HealthResponse queda auditado (Micelia solo lee `version`, ahora sí expuesto; canela sin
+`version` documentado como DP-8). Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de eventos que Micelia
+recibe por REST** — el `EventCreate`/`IdmEvent` que valida `POST /api/v1/events` (`app/api/v1/events.py`, `app/sdk/models.py`)
+vs el `VitalEvent.to_dict()` que los 5 SDK de dominio **realmente envían** (`category, source, action, event_type, payload,
+subcategory, metadata, tags, correlation_id`) — verificar que Micelia no exija un campo que un SDK no manda ni rechace uno que sí
+manda (p.ej. `subcategory`/`tags` opcionales, enum de `category`/`source`). Alternativa a cobertura: `cli.py`/`main.py` vía
+subprocess. No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 41 (COHERENCIA INTER-PROYECTO #7: audita el **Event Bus** — source-ids y nombres de canal/evento que Micelia publica/consume vs lo que emiten los 5 SDK de dominio. Los **source-ids y event_types coinciden**; hallado **drift de namespace de canal**: Micelia usa `idm.*` y los 5 dominios `vital.*` → documentado como **DP-7** (decisión de migración coordinada, no ejecutable unilateralmente). Deliverable Micelia-only: **unifica el mapa de canales DUPLICADO** — `EventBus.CHANNELS` se deriva de `sdk.models.EVENT_CHANNELS` (fuente única) · +1 test de invariante anti-drift · verify verde 1458 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 40 → no aplica prioridad #1 (red→green). Ciclo 40 recomendó seguir en
