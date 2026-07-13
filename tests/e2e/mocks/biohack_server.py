@@ -302,10 +302,15 @@ class BiohackMock:
 
     def _health_services_response(self, request: Request) -> Response:
         canela_healthy = self._mode != "degraded"
+        # URLs = defaults reales de `app/core/config.py` (topología local-first).
+        # En docker-compose son los hostnames de contenedor equivalentes
+        # (biohack-app:8080, canela-molida:3690, ideacursi-backend:5050,
+        # cybertools:8000). NO usar puertos inventados: el registry real
+        # (`app/services/service_registry.py`) refleja `settings.*_service_url`.
         services: dict[str, ServiceStatusEntry] = {
             "health": ServiceStatusEntry(
                 name="biohack-app",
-                url="http://biohack:8000",
+                url="http://localhost:8080",
                 enabled=True,
                 healthy=True,
                 latency_ms=1.4,
@@ -313,7 +318,7 @@ class BiohackMock:
             ),
             "research": ServiceStatusEntry(
                 name="canela-molida",
-                url="http://canela:8001",
+                url="http://localhost:3690",
                 enabled=True,
                 healthy=canela_healthy,
                 latency_ms=2.1 if canela_healthy else None,
@@ -321,7 +326,7 @@ class BiohackMock:
             ),
             "education": ServiceStatusEntry(
                 name="ideacursi-tool",
-                url="http://ideacursi:8002",
+                url="http://localhost:5050",
                 enabled=True,
                 healthy=True,
                 latency_ms=2.1,
@@ -329,7 +334,7 @@ class BiohackMock:
             ),
             "security": ServiceStatusEntry(
                 name="cybertools",
-                url="http://cybertools:8003",
+                url="http://localhost:8000",
                 enabled=True,
                 healthy=True,
                 latency_ms=1.8,

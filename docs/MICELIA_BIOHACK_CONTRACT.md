@@ -228,13 +228,21 @@
   ```json
   {
     "services": {
-      "health":    {"name": "biohack-app",     "url": "http://biohack:8000",  "enabled": true,  "healthy": true,  "latency_ms": 1.4, "error": null},
-      "research":  {"name": "canela-molida",   "url": "http://canela:8001",   "enabled": true,  "healthy": false, "latency_ms": null, "error": "timeout"},
-      "education": {"name": "ideacursi-tool",  "url": "http://ideacursi:8002","enabled": true,  "healthy": true,  "latency_ms": 2.1, "error": null},
-      "security":  {"name": "cybertools",      "url": "http://cybertools:8003","enabled": true, "healthy": true,  "latency_ms": 1.8, "error": null}
+      "health":    {"name": "biohack-app",     "url": "http://localhost:8080", "enabled": true,  "healthy": true,  "latency_ms": 1.4, "error": null},
+      "research":  {"name": "canela-molida",   "url": "http://localhost:3690", "enabled": true,  "healthy": false, "latency_ms": null, "error": "timeout"},
+      "education": {"name": "ideacursi-tool",  "url": "http://localhost:5050", "enabled": true,  "healthy": true,  "latency_ms": 2.1, "error": null},
+      "security":  {"name": "cybertools",      "url": "http://localhost:8000", "enabled": true,  "healthy": true,  "latency_ms": 1.8, "error": null}
     }
   }
   ```
+  > **Puertos (fuente de verdad):** los `url` reflejan `settings.*_service_url`
+  > (`app/core/config.py`), cuyos defaults local-first son
+  > `localhost:8080/3690/5050/8000` para health/research/education/security.
+  > En docker-compose los equivalentes son los hostnames de contenedor
+  > `biohack-app:8080`, `canela-molida:3690`, `ideacursi-backend:5050`,
+  > `cybertools:8000` (ver `docker-compose.yml` env del servicio `idm-core`).
+  > No existen puertos `8001/8002/8003` en ninguna capa; eran ejemplos erróneos
+  > corregidos en Ciclo 37.
 - **Errores**: 500.
 
 ---
