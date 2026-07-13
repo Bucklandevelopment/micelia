@@ -16,6 +16,61 @@
 
 ---
 
+## 2026-07-13 — Ciclo 31 (reconciliación · `app/sdk/client.py` 59→100% — primer módulo del eje SDK · verify verde 1304 pass limpio · cov 90.02% limpio · gate 87→89)
+
+**Contexto:** al orientarme detecté que **Ciclo 31 había quedado a medias**. El commit `81fd20e`
+(`test(sdk): cubrir app/sdk/client.py 59→100% — Ciclo 31`, mismo día 12:10) sí aterrizó el test
+`tests/test_sdk_client_codex.py` (+20 tests), **pero faltaban los dos commits de contabilidad que TODOS
+los ciclos previos tienen**: el `chore(cov)` (ratchet del gate en el Makefile) y el `docs(log)` (esta
+entrada). El gate seguía en **87** (valor de Ciclo 30) pese a estar `client.py` ya al 100%, el tope del log
+seguía siendo Ciclo 30, y `COVERAGE_ROADMAP.md` no reflejaba Ciclo 31. Esto violaba la regla de Jessicache
+(2026-07-11, "no dejar rutinas en estado 'solo plan'") y el DoD de cerrar cada ciclo **IMPLEMENTADO ✅**.
+Por eso la tarea nº1 de hoy fue **completar la contabilidad de Ciclo 31 sin re-escribir el test** (ya existe).
+Prioridad #1 (rojo→verde) satisfecha en baseline (`make verify` verde antes de tocar nada) y hito DoD ≥70%
+cumplido → el día cae en **prioridad #3 (roadmap: subir cobertura)** más el saneamiento de contabilidad.
+Trabajo autónomo-seguro: solo Makefile + docs (+ los tests de Ciclo 32, ver esa entrada), sin
+infra/red/`.env`/`uv.lock`, sin tocar runtime.
+
+**Hecho (2 commits de reconciliación):**
+- `chore(cov)` (`4ab969b`): ratchet `--cov-fail-under` **87→89** en `Makefile` (`floor(90.02)−1 = 89`) +
+  nota cosmética del target `cov` actualizada (gate 89 / medido 90.02%). Cabecera e histórico de
+  `docs/COVERAGE_ROADMAP.md` con la línea de Ciclo 31: `app/sdk/client.py` 59→100% (197 stmts, 80 miss
+  cerrados), **primer módulo del eje SDK** — el cliente `IdmServiceClient` que los 6 satélites usan para
+  integrarse con Micelia.
+- `docs(log)`: esta entrada.
+
+**Resumen del test ya committeado (`81fd20e`, no re-tocado):** `tests/test_sdk_client_codex.py` cubre el
+lifecycle `start()`/`stop()` con recursos vivos, `_heartbeat_loop` (happy + recuperación de excepción),
+ramas de error de `publish_event`/`publish_event_bus`, `subscribe` (sin redis→`RuntimeError`, resolución de
+shorthand, listener), `_listen_loop` (dispatch async/sync, JSON inválido→raw, callback que lanza,
+`Cancelled`/excepción genérica), `health` uptime, propiedad deprecada `idm_core_url`, y `_connect_redis`
+(éxito/`ImportError`/fallo de conexión). Todo in-process con `AsyncMock` de http/redis; sin red/infra/subprocess.
+Resultado en el reporte term-missing: **`app/sdk/client.py` 197/197 stmts, 100%, 0 miss**.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy, 0 errores), test ✓
+(**1304 pass** + 2 skip en checkout limpio; 1322 pass con el fichero suelto presente), cov ✓ (**90.02%**
+checkout limpio / 90.28% con el suelto, ambos ≥ gate **89**). Frontend no tocado. Sin procesos residuales.
+- **Medición honesta (igual que Ciclos 27–30):** el árbol contiene aún el **fichero suelto ajeno**
+  `tests/test_api_prompts_codex.py` (modificado, no committeado). El % limpio (90.02%, 1304 pass) se mide
+  stasheando ese fichero antes de correr `cov`; con él daría 90.28% (1322 pass).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de
+frontend; (2) actualizar el doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura:
+con `client.py` cerrado, los mayores huecos restantes son los routers parciales `app/api/v1/gateway.py`
+(70 stmts, 60%) y `app/api/v1/events.py` (69 stmts, 68%) — atacados en Ciclo 32 (ver entrada siguiente, misma
+ejecución). Dir legacy vacío `micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend
+`middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): qué hacer con el fichero suelto
+`tests/test_api_prompts_codex.py` (arrastrado desde Ciclo 27), y hosting/DNS/TLS de `*.idmmortality.com`
++ eventual regreso del funnel público (aparcado desde Ciclo 16).
+
+**Mañana:** ver entrada de **Ciclo 32** (misma ejecución) que cierra `gateway.py` + `events.py`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 30 (router `energy.py` 33→100% — CIERRA el mayor router descubierto restante · verify verde 1302 pass · cov 88.86% limpio · gate 86→87)
 
 **Contexto:** Ciclo 29 (misma fecha) cerró `system.py` 35→100% dejando `make verify` verde (1272 pass,
