@@ -37,6 +37,22 @@ const MOCK_REFRESH_TOKEN = 'mock-refresh-token'
 // ---------------------------------------------------------------------------
 
 const authHandlers = [
+  http.post('/api/v1/auth/register', async () => {
+    // El backend real (POST /api/v1/auth/register) hace auto-login y devuelve
+    // 201 con el par de tokens. Reproducimos esa shape para que
+    // `authApi.register` → `setStoredTokens` → redirect a `/` funcione en modo
+    // mock, igual que el flujo real register → login → dashboard.
+    return HttpResponse.json(
+      {
+        access_token: MOCK_ACCESS_TOKEN,
+        refresh_token: MOCK_REFRESH_TOKEN,
+        token_type: 'bearer',
+        expires_in: 86400,
+      },
+      { status: 201 }
+    )
+  }),
+
   http.post('/api/v1/auth/login', async () => {
     return HttpResponse.json({
       access_token: MOCK_ACCESS_TOKEN,
