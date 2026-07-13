@@ -16,6 +16,68 @@
 
 ---
 
+## 2026-07-13 — Ciclo 40 (COHERENCIA INTER-PROYECTO #6: audita los **health-check paths** que Micelia sondea contra los endpoints REALES que cada dominio sirve — los 4 coinciden — y elimina el **mapa de health-endpoints DUPLICADO** del service-registry unificándolo en una fuente única `HEALTH_ENDPOINTS` · +1 test de invariante · verify verde 1457 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 39 → no aplica prioridad #1 (red→green). Ciclo 39 recomendó seguir en
+**coherencia inter-proyecto (#4)** auditando los **proxies genéricos** del gateway y el **health-check agregado** que Micelia
+expone: verificar que los paths de health que sondea coincidan con los que los dominios realmente sirven. Trabajo sobre
+código propio de Micelia (`app/services/service_registry.py` + su test); sin tocar infra, `.env`, `uv.lock` ni hermanos.
+
+**Auditoría realizada (fuente de verdad = código de los hermanos):**
+- **Proxies genéricos** (`/gateway/{health,research,education,security}/{path}` en `app/api/v1/gateway.py`): reenvían el
+  path tal cual al `settings.*_service_url` → sin contrato hardcodeado que auditar (ya revisado en Ciclo 38). OK.
+- **Health-check agregado** — `app/api/v1/health.py` (`/api/v1/health/{detailed,services,ready}`) NO cablea paths: delega
+  en `ServiceRegistry.check_service`, que devuelve el último estado cacheado. El path real de health por dominio vive en
+  `service_registry.py`. Contrastados los 4 contra el handler real de cada hermano:
+  - **health = biohack-app** → registry sondea `/api/v1/service-health`; existe y responde 200 (`backend/main.py:209`,
+    `@app.get("/api/v1/service-health")`, formato ecosystem con status/version/capabilities). ✓
+  - **research = canela-molida** → `/health`; existe (`app/main.py:505`, `@app.get("/health")`). ✓
+  - **education = ideacursi-tool** → `/api/health`; real = `setGlobalPrefix('api')` + `@Controller('health')` + `@Get()`
+    (`backend/src/health/health.controller.js:15,36`) → ruta `/api/health`. ✓
+  - **security = cybertools** → `/health`; existe (`src/scanet/api.py:127`, `@app.get("/health")`). ✓
+  - Los 4 paths de dominio **coinciden con la realidad** (a diferencia de los puertos ficticios del Ciclo 37 o los
+    DTOs/bodies de los Ciclos 38–39). Sin drift de rutas.
+- **Contradicción encontrada (interna a Micelia, drift *latente*):** el mapa `nombre → health_endpoint` estaba
+  **DUPLICADO** en `service_registry.py`: una copia en `discover_services` (`service_configs[*]["health_endpoint"]`,
+  chequeo inicial) y otra idéntica en `_continuous_monitoring` (`health_endpoints`, monitoreo periódico). Hoy coinciden,
+  pero si un dominio cambia su ruta de health y solo se actualiza una copia, **discovery sondearía una URL y monitoring
+  otra** — un servicio marcaría healthy al arranque y unhealthy en cada ciclo (o viceversa) de forma inexplicable. Mismo
+  antipatrón de fondo que Ciclos 37–39: dos sitios que codifican el mismo contrato y pueden derivar.
+
+**Hecho (1 commit atómico):**
+- `refactor(registry)`: nueva constante de clase `ServiceRegistry.HEALTH_ENDPOINTS` como **fuente única** del endpoint de
+  health por dominio, con cada ruta anclada por comentario al handler REAL del hermano (biohack `/api/v1/service-health`,
+  canela `/health`, ideacursi `/api/health`, cybertools `/health`, + devtools/testlab `/health`). `discover_services` y
+  `_continuous_monitoring` consumen ambos la constante; el monitoreo pasa de `health_endpoints[name]` a
+  `HEALTH_ENDPOINTS.get(name, "/health")` (defensivo, sin KeyError si se registra un servicio sin entrada). **Test nuevo**
+  `test_health_endpoints_cover_every_registered_service`: invariante de que todo servicio que `discover_services` registra
+  tiene entrada en `HEALTH_ENDPOINTS` (caza un futuro 7º dominio añadido sin health-endpoint, que caería al fallback en
+  silencio). Sin cambios de comportamiento observable (los valores son idénticos a los duplicados que sustituye).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1457 pass** + 2 skip, **+1** por el test de invariante nuevo), cov ✓ (**93.12%**, ≥ gate **92**; `service_registry.py`
+sigue al **100%**). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** Sin novedades propias. Siguen abiertas **DP-6** (semántica de `user_id` en el
+pipeline research-to-course: seed de usuario de servicio en ideacursi vs propagar el user real), **DP-5** (rebrand
+`vital-core`→`micelia` de env-vars de hermanos) y las de INFRA del funnel (**DP-1..DP-4**). Nota de coherencia: el
+health-check se ha alineado por **lectura de código** de los 4 dominios, no por sondeo live (guardarraíl local-first
+impide levantar los 4 servicios + gateway a la vez de forma rutinaria); el registry cachea estado y degrada limpio.
+
+**Mañana (Ciclo 41):** el health-check queda auditado (paths correctos + fuente única sin drift) y el pipeline alineado
+(ruta+params+body) contra canela/ideacursi. Siguiente en **coherencia inter-proyecto (#4)**: auditar el **Event Bus** —
+los `source-id` y nombres de canal/evento que Micelia publica/consume (`app/services/event_bus.py`, canales Redis) vs los
+que los dominios emiten según su SDK (`biohack.*`, `canela.*`, `ideacursi.*`, `cybertools.*`, `auto-mat-ion.*`) — verificar
+que los nombres de evento (p.ej. `paper.ingested`, `achievement.unlocked`, `threat.detected`) y source-ids coincidan con
+lo que cada dominio realmente publica, sin drift de naming. Alternativa a cobertura: `cli.py`/`main.py` vía subprocess. No
+tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 39 (COHERENCIA INTER-PROYECTO #5: alinea el **cuerpo del POST de creación de curso** del pipeline `research-to-course` con el `CreateCourseDto` REAL de ideacursi — corrige un body ficticio que **reventaría ideacursi con un 500** · añade la aserción de body que faltaba · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 38 → no aplica prioridad #1 (red→green). Ciclo 38 recomendó
