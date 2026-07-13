@@ -164,12 +164,19 @@ async def research_to_course_pipeline(
         log.info(f"Pipeline: Buscando papers sobre '{topic}'")
         papers_response = await client.get(
             f"{settings.research_service_url}/api/papers/search/openalex",
-            params={"query": topic, "per_page": max_papers}
+            # Contrato real de canela-molida (app/api/papers.py::search_openalex):
+            # el parámetro es `limit` (1..200), NO `per_page`; con `per_page` el
+            # servicio ignora el tamaño y devuelve su default (25).
+            params={"query": topic, "limit": max_papers},
         )
+        # canela devuelve una LISTA JSON de papers (-> list[dict]), no un
+        # envoltorio {"results": [...]}. Se normaliza defensivamente por si algún
+        # dominio compatible envolviera la respuesta.
         papers = papers_response.json()
+        paper_list = papers if isinstance(papers, list) else papers.get("results", [])
 
         # Paso 2: Generar síntesis (RAG query)
-        log.info(f"Pipeline: Generando síntesis de {len(papers.get('results', []))} papers")
+        log.info(f"Pipeline: Generando síntesis de {len(paper_list)} papers")
         synthesis_response = await client.post(
             f"{settings.research_service_url}/api/rag/query",
             json={
@@ -183,7 +190,10 @@ async def research_to_course_pipeline(
         if settings.education_service_enabled:
             log.info(f"Pipeline: Generando curso para '{topic}'")
             course_response = await client.post(
-                f"{settings.education_service_url}/courses/create",
+                # ideacursi-tool monta NestJS con setGlobalPrefix('api'), por lo
+                # que la ruta real es /api/courses/create (@Controller('courses')
+                # + @Post('create')). Sin el prefijo /api el POST daría 404.
+                f"{settings.education_service_url}/api/courses/create",
                 json={
                     "title": f"Curso: {topic}",
                     "description": synthesis.get("answer", "")[:500],
@@ -206,7 +216,7 @@ async def research_to_course_pipeline(
                 event_type="education.pipeline.research_to_course",
                 payload={
                     "topic": topic,
-                    "papers_found": len(papers.get("results", [])),
+                    "papers_found": len(paper_list),
                     "synthesis_length": len(synthesis.get("answer", "")),
                     "course_created": course is not None
                 }
@@ -215,7 +225,7 @@ async def research_to_course_pipeline(
         return {
             "status": "completed",
             "topic": topic,
-            "papers_analyzed": len(papers.get("results", [])),
+            "papers_analyzed": len(paper_list),
             "synthesis": {
                 "answer": synthesis.get("answer"),
                 "sources": len(synthesis.get("contexts", []))

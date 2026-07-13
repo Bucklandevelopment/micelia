@@ -170,7 +170,9 @@ def _json_resp(payload) -> MagicMock:
 async def test_pipeline_full_with_course_and_event(monkeypatch):
     monkeypatch.setattr(gateway.settings, "education_service_enabled", True)
     client = AsyncMock()
-    client.get.return_value = _json_resp({"results": [{"id": 1}, {"id": 2}]})
+    # canela-molida devuelve una LISTA de papers (contrato real de
+    # /api/papers/search/openalex -> list[dict]), no un envoltorio {"results"}.
+    client.get.return_value = _json_resp([{"id": 1}, {"id": 2}])
     client.post.side_effect = [
         _json_resp({"answer": "A" * 30, "contexts": [1, 2, 3]}),  # synthesis
         _json_resp({"course_id": "c1"}),  # course
@@ -192,12 +194,18 @@ async def test_pipeline_full_with_course_and_event(monkeypatch):
     payload = store.append_event.call_args.kwargs["payload"]
     assert payload["papers_found"] == 2
     assert payload["course_created"] is True
+    # Contrato con los dominios reales: `limit` (no `per_page`) en openalex y el
+    # prefijo NestJS /api en el POST de creación de curso de ideacursi.
+    assert client.get.call_args.kwargs["params"] == {"query": "longevity", "limit": 50}
+    assert client.get.call_args.args[0].endswith("/api/papers/search/openalex")
+    course_url = client.post.call_args_list[1].args[0]
+    assert course_url.endswith("/api/courses/create")
 
 
 async def test_pipeline_education_disabled_no_course(monkeypatch):
     monkeypatch.setattr(gateway.settings, "education_service_enabled", False)
     client = AsyncMock()
-    client.get.return_value = _json_resp({"results": [{"id": 1}]})
+    client.get.return_value = _json_resp([{"id": 1}])  # lista real de canela
     client.post.return_value = _json_resp({"answer": "short", "contexts": []})
     async with client_for(build_app(client, event_store=None)) as ac:
         resp = await ac.post(
@@ -216,7 +224,7 @@ async def test_pipeline_education_disabled_no_course(monkeypatch):
 async def test_pipeline_no_event_store_skips_append(monkeypatch):
     monkeypatch.setattr(gateway.settings, "education_service_enabled", False)
     client = AsyncMock()
-    client.get.return_value = _json_resp({"results": []})
+    client.get.return_value = _json_resp([])  # lista vacía real de canela
     client.post.return_value = _json_resp({"answer": "", "contexts": []})
     # event_store None → the `if event_store:` guard is False, no crash.
     async with client_for(build_app(client, event_store=None)) as ac:
