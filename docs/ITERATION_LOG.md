@@ -16,6 +16,77 @@
 
 ---
 
+## 2026-07-13 — Ciclo 27 (cierre de huecos residuales en 8 módulos near-100% → 100% · verify verde 1154 pass · cov 80.70→81.09% · gate 79→80)
+
+**Contexto:** Ciclo 26 (2026-07-12) cerró `osascript.py` 24→100% (el último bloque descubierto grande) dejando `make
+verify` verde y recomendó como "Mañana (Ciclo 27)" la vía (a): **cerrar los huecos pequeños de alto valor** —
+medir con `term-missing` los módulos con menos miss y cerrarlos en un solo ciclo "hasta rozar ~81% (ratchet a 80)".
+Prioridad #1 (rojo→verde) satisfecha en baseline y hito DoD ≥70% cumplido → el día cae en **prioridad #3 (roadmap:
+subir cobertura)**. Baseline vivo confirmado verde antes de tocar nada: **1138 pass + 2 skip, cov 80.70%** (algo por
+encima del 80.44% documentado — la suite había crecido), gate 79. Medición `term-missing`: ya **no quedan bloques
+descubiertos grandes**; solo huecos repartidos en 8 módulos near-100% (24-27 stmts). Como el baseline real (80.70%)
+era mayor de lo previsto, cerrarlos **cruza el 81.0% sin necesidad de tocar módulos grandes** (ni el `sdk/client.py`
+59%). Todos ya tenían `tests/test_*_codex.py` (salvo `angels`, sin fichero) → se **añaden casos**. Trabajo
+autónomo-seguro: solo tests + Makefile + docs, sin infra/red/`.env`/`uv.lock`, sin tocar runtime de `app/`.
+
+**Hecho (3 commits atómicos):**
+- `test(services)`: **+16 tests** cerrando 8 módulos near-100% a **100%, 0 miss**:
+  - `agents/prompt_os_agents.py` 98→100% (miss 54-55): `_extract_json` con bloque `{...}` de JSON inválido → el
+    regex lo captura, `json.loads` lanza `JSONDecodeError` (`except pass`) y termina en el `raise ValueError`.
+  - `context_assembler.py` 97→100% (miss 103-104, 144-145): las dos ramas `except Exception: pass` de lectura de
+    `cowork.md` (layer 0) y del md de lista activa (layer 1), forzando `IsADirectoryError` (el path existe pero es
+    un directorio) → el ensamblado degrada sin propagar.
+  - `frangels/quota_manager.py` 97→100% (miss 84-85, 95-96, 292, 294): `_load` con `usage.json` corrupto → `except`
+    logea y degrada a vacío; `_save` con `usage_file` apuntando a un directorio → `write_text` lanza → `except`
+    logea; `get_best_provider(require_vision=True)`/`(require_tools=True)` → el `continue` que excluye ángeles sin
+    esa capacidad (deepseek/cohere/mistral/huggingface sin visión; huggingface sin tools).
+  - `google_calendar.py` 98→100% (miss 24-28): el guard `except ImportError` del import opcional de google libs
+    (que SÍ están instaladas aquí, por eso no corría). Nuevo `TestImportFallback`: `importlib.reload` con los 3
+    submódulos (`google.oauth2.credentials`, `google_auth_oauthlib.flow`, `googleapiclient.discovery`) puestos a
+    `None` en `sys.modules` → `from … import …` lanza `ImportError` → `GOOGLE_LIBS_AVAILABLE=False`. Restaura
+    `sys.modules` y hace `reload` de vuelta en `finally` (estado limpio, sin contaminar otros tests).
+  - `prompt_agent.py` 98→100% (miss 161, 207, 221): rama `if group_id` que setea `correlation_id` (dos prompts
+    pendientes con 2 tags compartidos → `_find_group` devuelve gid); y las dos coerciones de datetime naive→UTC de
+    `scheduled_at` (207) y `created_at` (221) con ISO sin zona.
+  - `service_registry.py` 97→100% (miss 112, 252-254): hint `else`→`make docker-full` cuando el conjunto unhealthy
+    ≠ `{"health"}` (varios dominios habilitados y caídos); y el `except Exception` del loop de monitoring (`fake_sleep`
+    lanza `RuntimeError` en la 1ª pasada → `log.error` + backoff `sleep(5)`, `CancelledError` en la 3ª → salida limpia).
+  - `frangels/angels.py` 97→100% (miss 455, 460): nuevo `tests/test_angels_codex.py` para los helpers
+    `get_inference_angels()` y `get_available_angels()` (lookups puros sobre `ANGEL_REGISTRY`).
+  - `scheduler.py` 99→100% (miss 137): `except ImportError` de `_sync_calendar` (patcheando `get_google_calendar`
+    para que lance `ImportError`, mismo shape que los tests hermanos de sync).
+- `chore(cov)`: total 80.70%→**81.09%**. Ratchet **efectivo**: `floor(81.09)−1 = 80` → gate `--cov-fail-under`
+  **79→80** en `Makefile` (target `cov` + comentario + nota). `docs/COVERAGE_ROADMAP.md`: header (medición
+  80.44→81.09%, gate 79→80, margen +11.09) + entrada Ciclo 27 en el histórico.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (`ruff` app/sdk/tests), typecheck ✓ (`mypy app/`, 0 errores),
+test ✓ (**1154 pass** + 2 skip, era 1138: +16 nuevos), cov ✓ (**81.09%** ≥ gate **80**). Frontend no tocado (no
+aplica `frontend-lint`). Sin procesos residuales (ciclo solo-tests, sin runtime).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura: cerrados
+los módulos de servicio near-100%, los mayores huecos que quedan son de **superficie no-crítica o cara de mockear**:
+`app/sdk/client.py` 59% (80 miss — cliente HTTP del SDK, requiere respx/httpx exhaustivo), `app/api/v1/frangels.py`
+36% (120 miss — router de providers), y colas menores en otros routers `ai.py`/`prompts.py`. Dir legacy vacío
+`micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin
+`/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 28 — NEXT STEP):** sin huecos near-100% restantes, la cobertura sube ya solo atacando superficie
+grande. Dos vías: (a) **`app/api/v1/frangels.py`** (187 stmts, 36%, 120 miss — el mayor router sin cubrir; montar
+sobre `FastAPI()` local con `get_frangels_orchestrator`/`provider_store` mockeados, mismo patrón que los routers de
+Ciclos 16-25, gran ganancia de golpe → gate 80→81+); o (b) **`app/sdk/client.py`** (197 stmts, 59%, 80 miss —
+cliente HTTP del SDK con `respx`/`httpx` mock). **Recomendado: (a)** por ganancia/esfuerzo y por reutilizar el patrón
+de routers ya establecido; (b) queda como candidato del eje SDK. Alternativa de eje nuevo: arrancar el ratchet `mypy
+strict` en `app/services/frangels/` (~100% cubierto, superficie acotada). No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-12 — Ciclo 26 (servicio osascript.py 0%*→100% — PIVOTE de routers a servicios · verify verde 1120 pass · cov 76.94→80.44% · gate 75→79)
 
 **Contexto:** Ciclo 25 (misma fecha) cerró el **backlog de routers a 0%** dejando `make verify` verde (1042 pass,
