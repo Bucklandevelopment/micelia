@@ -16,6 +16,62 @@
 
 ---
 
+## 2026-07-13 — Ciclo 37 (COHERENCIA INTER-PROYECTO #4: corrige puertos **ficticios** del service-registry en el mock e2e + contrato biohack — alinea con `config.py`/`docker-compose` reales · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 36 → no aplica prioridad #1 (red→green). Cobertura de módulos en
+techo de bajo riesgo (todo app/services + routers al 100%; solo `cli.py`/`main.py` intencionalmente fuera). Ciclo 36
+recomendó explícitamente pasar a **prioridad #4 (coherencia inter-proyecto): revisar contratos API micelia↔dominios y
+que los puertos/endpoints documentados no contradigan los reales**. Trabajo de docs/contratos, sin infra ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = código):**
+- Contrato real de Micelia extraído del código: gateway `:8888` (`gateway_port`), 19 routers bajo `/api/v1`, proxy
+  `SERVICE_ROUTES` (`app/api/v1/gateway.py`) → `health/research/education/security`. URLs reales = `settings.*_service_url`
+  (`app/core/config.py` defaults local-first `localhost:8080/3690/5050/8000`; docker-compose env de `idm-core`:
+  `biohack-app:8080`, `canela-molida:3690`, `ideacursi-backend:5050`, `cybertools:8000`).
+- **Contradicción encontrada (interna a Micelia):** el mock e2e `tests/e2e/mocks/biohack_server.py::_health_services_response`
+  y el ejemplo §11 de `docs/MICELIA_BIOHACK_CONTRACT.md` publicaban el service-registry con URLs **inventadas**
+  `biohack:8000 / canela:8001 / ideacursi:8002 / cybertools:8003` — no coinciden **con ninguna** capa (ni config local
+  ni docker). Los puertos `8001/8002/8003` no existen en el repo. Riesgo: un dev leyendo el contrato cablearía peers a
+  puertos inexistentes. Ningún test asserta esos valores (`url: str` sin validación) → corrección segura.
+- **Auditoría de docs de dominios hermanos:** sus refs al orquestador (`VITAL_CORE_URL=http://localhost:8888` en
+  `biohack-app/.env.example`, `ideacursi-tool/.../vital-core.service.js`, CORS `:8888` en `canela-molida/.env.example`)
+  usan el **puerto correcto 8888** → sin contradicción de puertos/endpoints. Único drift: siguen nombrando `vital-core`/
+  `VITAL_CORE_URL` en vez de `micelia`/`MICELIA_URL` (rebrand retrocompat; deep-work en hermanos = fuera de scope).
+
+**Hecho (2 commits atómicos):**
+- `fix(e2e)`: corrige las 4 URLs del registry en `tests/e2e/mocks/biohack_server.py` a los defaults reales de `config.py`
+  (`localhost:8080/3690/5050/8000`) + comentario que fija la topología local vs docker y prohíbe puertos inventados.
+  Idéntica corrección en el ejemplo §11 de `docs/MICELIA_BIOHACK_CONTRACT.md` + nota **«Puertos (fuente de verdad)»**
+  que ancla `settings.*_service_url` / docker-compose para evitar drift futuro.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy sobre `app/`, 0 errores; el mock vive en
+`tests/`, fuera del scope de mypy), test ✓ (**1456 pass** + 2 skip, sin cambio en el nº — solo se corrigieron valores de
+datos ilustrativos que ningún assert comprueba), cov ✓ (**93.11%**, ≥ gate **92**; ratchet **no-op**, no se añadieron
+statements de `app/`). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni
+infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura: techo de bajo riesgo (solo `cli.py`/
+`main.py` sin cubrir, intencional).
+
+**DECISIÓN PENDIENTE (para Jessicache):** **NUEVA (DP-5, naming/rebrand):** los dominios hermanos siguen refiriéndose al
+orquestador como `vital-core` / env `VITAL_CORE_URL` (puerto 8888 correcto, solo drift de nombre). Migrarlos a
+`micelia` / `MICELIA_URL` toca `.env.example` y código de integración de 3+ hermanos (biohack, ideacursi, canela) →
+deep-work fuera del scope de esta rutina y con riesgo de romper su arranque. Recomendación: planificar un rebrand
+coordinado de los env-vars de integración (con alias retrocompat) como tarea propia. Siguen abiertas las de INFRA del
+funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 38):** con la contradicción de puertos cerrada, seguir en **coherencia inter-proyecto (#4)**: verificar
+que las **rutas del proxy gateway** documentadas (`/api/v1/gateway/{health,research,education,security}/...` y el pipeline
+`research-to-course`) coinciden con los paths reales que cada dominio expone (p.ej. canela `/api/papers/search/openalex`,
+`/api/rag/query`; ideacursi `/courses/create`) — auditar contra los READMEs/rutas reales de los hermanos y documentar
+divergencias en el contrato, sin tocar infra ni el código de los hermanos. Alternativa: `cli.py` vía subprocess si se
+quiere volver a cobertura. No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 36 (DESBLOQUEO: se **committea** la cobertura 503 de `app/api/v1/prompts.py` 93→100% arrastrada sin committear desde Ciclo 27 · cierra la DECISIÓN PENDIENTE escalada 8 ciclos · verify verde 1456 pass limpio · cov **93.11%** limpio · gate **91→92**)
 
 **Contexto:** `make verify` estaba VERDE al cierre de Ciclo 35 → no aplica prioridad #1 (red→green). Roadmap v0.1
