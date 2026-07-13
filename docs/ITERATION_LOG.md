@@ -16,6 +16,78 @@
 
 ---
 
+## 2026-07-13 — Ciclo 32 (routers `gateway.py` 60→100% + `events.py` 68→100% — CIERRA los 2 routers parciales restantes · verify verde 1345 pass limpio · cov 90.74% limpio · gate 89 sin cambio)
+
+**Contexto:** misma ejecución que Ciclo 31 (arriba). Cerrada la contabilidad de Ciclo 31 (SDK client) y con
+`make verify` verde, el día cae en **prioridad #3 (roadmap: subir cobertura)**. Con `client.py` cerrado, los
+mayores huecos que quedaban eran los **dos routers parciales** `app/api/v1/gateway.py` (70 stmts, **60%**,
+miss 45,88-93,117,127,137,159-228) y `app/api/v1/events.py` (69 stmts, **68%**, miss 122-139,155-162,180,
+208-217). Trabajo autónomo-seguro: solo dos ficheros de tests nuevos + roadmap + nota del Makefile, sin
+infra/red/`.env`/`uv.lock`, sin tocar runtime.
+
+**Hecho (3 commits atómicos):**
+- `test(api)` (`2a10104`): dos ficheros nuevos, **+41 tests**, patrón canónico (`FastAPI()` local +
+  `AsyncClient`/`ASGITransport` + auth real con `api_key_manager.generate_key(permissions={"all"})` +
+  dependencias en `app.state`). Descubierto al escribir: ambos routers leen `request.app.state.event_store`
+  (y `.http_client`) **por acceso directo, no `getattr(...,None)`**, así que el `build_app` de cada test
+  **siempre** siembra ese estado (a `None` para la rama 503/500-evitado, o a `AsyncMock` para el happy).
+  - `tests/test_api_events_codex.py` (+24): `event_store=None`→**503** en los 5 endpoints que lo exigen
+    (`GET ""`,`/timeline/{date}`,`/by-correlation/{id}`,`POST ""`,`/stats`); happy de `list_events` (eco
+    `limit`/`offset` + assert de kwargs `category/source/event_type/since/until/limit/offset`; `limit`
+    `le=1000`→**422**), `get_timeline` (fecha válida con `categories` split / sin categories; inválida→**400**),
+    `get_by_correlation` (UUID válido → `str(cid)`; UUID mal formado→**422**), `create_event` (proyección
+    `event_id`/`status`/`timestamp` + assert kwargs de `append_event` incl. `event_metadata`/`tags`; body
+    incompleto→**422**), `get_event_stats` (eco `period_days` + `since`≈`now−days`); `list_categories`
+    estático (4 categorías + subcategorías); auth 401/invalid-key.
+  - `tests/test_api_gateway_codex.py` (+17): `proxy_request` vía las 4 rutas `api_route` — reproduce
+    status/headers/content del upstream (`SimpleNamespace` doble), **filtra `host`/`content-length`**, body
+    presente en POST y ausente en GET, `params` de query pasados, ruta a cada `*_service_url` (parametrizado);
+    servicio no mapeado→**404** (`SERVICE_ROUTES` monkeypatcheado a `{}`, `client.request` no llamado);
+    traducción de errores httpx `TimeoutException`→**504**/`ConnectError`→**503**/genérico→**502**.
+    `research_to_course_pipeline` (`POST /gateway/pipeline/research-to-course`, `topic` como query param):
+    `education_service_enabled` True→3 llamadas (get papers + post synthesis + post course) y
+    `event_store.append_event` awaited (assert payload `papers_found`/`course_created`); False→`course=None`
+    y 1 solo POST; `event_store=None`→salta el append sin crash; `client.get` lanza→**500** ("Pipeline
+    failed"). auth 401/invalid-key. Ajuste al ejecutar: httpx serializa el body con separadores compactos
+    (`{"query":"aging"}`), assert corregido.
+- `chore(cov)` (`e498d3d`): roadmap (cabecera 90.74% + línea Ciclo 32) y nota cosmética del Makefile. **Ratchet
+  no-op**: `floor(90.74)−1 = 89`, gate ya en 89 (subiría a 90 con ≥91%). Sin cambio en `--cov-fail-under`.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy, 0 errores), test ✓
+(**1345 pass** + 2 skip en checkout limpio, era 1304 en Ciclo 31: +41; 1363 con el fichero suelto), cov ✓
+(**90.74%** limpio / 91.00% con el suelto, ambos ≥ gate **89**). Reporte term-missing: `gateway.py` 70/70 y
+`events.py` 69/69, ambos **100%, 0 miss**. Frontend no tocado. Sin procesos residuales (tests in-process,
+sin Docker).
+- **Medición honesta:** el fichero suelto ajeno `tests/test_api_prompts_codex.py` sigue sin committear; el %
+  limpio se mide stasheándolo antes de `cov`.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de
+frontend; (2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Cobertura: **no quedan
+routers ni módulos de servicio con huecos grandes**; los mayores restantes son de infraestructura/seguridad,
+más difíciles de cubrir con valor real sin arrancar recursos: `app/events/store.py` (128 stmts, **47%**, 68
+miss — Event Store PostgreSQL/SQLAlchemy async; requiere fake de engine async o `aiosqlite`), `app/core/security.py`
+(257 stmts, **76%**, 62 miss — rate limiter + JWT + verify_api_key global; algunos paths saltados en E2E),
+`app/api/v1/health.py` (62, 92%), `app/core/config.py` (136, 92%), `app/api/v1/prompts.py` (267, 93%, 18 miss
+tails). Los grandes `app/cli.py` (218, 0%) y `app/main.py` (186, 0%) siguen intencionalmente no cubiertos
+(CLI vía subprocess / lifespan ya ejercitado por arranque E2E). Dir legacy vacío `micelia/vital-core/docs/`
+intacto. Frontend `middleware.ts`: `PUBLIC_PATHS` sin `/register` (funnel APARCADO, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): fichero suelto
+`tests/test_api_prompts_codex.py` (arrastrado desde Ciclo 27); hosting/DNS/TLS de `*.idmmortality.com` +
+regreso del funnel público (aparcado Ciclo 16).
+
+**Mañana (Ciclo 33 — NEXT STEP):** el mayor hueco restante con valor real es **`app/events/store.py`**
+(128 stmts, 47%, 68 miss) — el Event Store async (SQLAlchemy/Postgres); cubrir con fake de engine async
+(patrón ya usado en `prompt_store.initialize` de Ciclo 14: `begin()` async-CM + `run_sync` AsyncMock) o
+`aiosqlite` en memoria, sin Postgres real. Alternativa: cerrar los tails de `app/api/v1/prompts.py` (18 miss)
+y `app/api/v1/health.py` (5 miss) en un ciclo combinado de bajo riesgo. **Recomendado: (a) `app/events/store.py`**
+como el mayor bloque restante y para abrir el eje de persistencia. No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 31 (reconciliación · `app/sdk/client.py` 59→100% — primer módulo del eje SDK · verify verde 1304 pass limpio · cov 90.02% limpio · gate 87→89)
 
 **Contexto:** al orientarme detecté que **Ciclo 31 había quedado a medias**. El commit `81fd20e`
