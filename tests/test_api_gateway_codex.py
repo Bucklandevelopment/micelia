@@ -200,6 +200,17 @@ async def test_pipeline_full_with_course_and_event(monkeypatch):
     assert client.get.call_args.args[0].endswith("/api/papers/search/openalex")
     course_url = client.post.call_args_list[1].args[0]
     assert course_url.endswith("/api/courses/create")
+    # El CUERPO debe respetar el CreateCourseDto real de ideacursi
+    # (`{userId, idea, description, studentLevel}`), no el contrato ficticio
+    # `{title, target_audience, num_modules, source_synthesis}`. En concreto
+    # `userId` es obligatorio (ideacursi hace `userId.match(...)` → 500 si falta).
+    course_body = client.post.call_args_list[1].kwargs["json"]
+    assert course_body == {
+        "userId": "micelia-pipeline",
+        "idea": "longevity",
+        "description": "A" * 30,
+        "studentLevel": "intermediate",
+    }
 
 
 async def test_pipeline_education_disabled_no_course(monkeypatch):

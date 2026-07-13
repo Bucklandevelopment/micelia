@@ -147,7 +147,7 @@ async def research_to_course_pipeline(
     topic: str,
     max_papers: int = 50,
     target_audience: str = "intermediate",
-    num_modules: int = 5
+    user_id: str = "micelia-pipeline",
 ):
     """
     Pipeline completo: Papers → Síntesis → Curso
@@ -194,13 +194,26 @@ async def research_to_course_pipeline(
                 # que la ruta real es /api/courses/create (@Controller('courses')
                 # + @Post('create')). Sin el prefijo /api el POST daría 404.
                 f"{settings.education_service_url}/api/courses/create",
+                # Cuerpo = CreateCourseDto REAL de ideacursi
+                # (backend/src/courses/dto/create-course.dto.js + el
+                # courses.service.js::createCourseIndex, que desestructura
+                # `{ userId, idea, description, studentLevel, language }`):
+                #  - `userId` es OBLIGATORIO: el service hace `userId.match(...)`
+                #    directamente, así que un body sin él REVIENTA ideacursi con
+                #    TypeError → 500 (no un 4xx de validación).
+                #  - `idea` (NO `title`) es el input generador del curso (max 2000).
+                #  - `studentLevel` es un enum beginner|intermediate|advanced
+                #    (NO `target_audience`); "intermediate" es un valor válido.
+                # `num_modules`/`source_synthesis` no existen en el DTO y el
+                # ValidationPipe corre con forbidNonWhitelisted → no se envían;
+                # ideacursi decide el nº de módulos y ya recibe la síntesis en
+                # `description`.
                 json={
-                    "title": f"Curso: {topic}",
+                    "userId": user_id,
+                    "idea": topic,
                     "description": synthesis.get("answer", "")[:500],
-                    "target_audience": target_audience,
-                    "num_modules": num_modules,
-                    "source_synthesis": synthesis
-                }
+                    "studentLevel": target_audience,
+                },
             )
             course = course_response.json()
         else:
