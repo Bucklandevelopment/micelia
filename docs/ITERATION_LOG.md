@@ -16,6 +16,61 @@
 
 ---
 
+## 2026-07-13 — Ciclo 38 (COHERENCIA INTER-PROYECTO #4: alinea el **pipeline `research-to-course`** del gateway con los contratos reales de canela e ideacursi — 3 drifts corregidos en código propio de Micelia · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 37 → no aplica prioridad #1 (red→green). Ciclo 37 recomendó
+explícitamente seguir en **prioridad #4 (coherencia inter-proyecto)** auditando que las **rutas del proxy gateway** y el
+pipeline `research-to-course` coincidieran con los paths/params reales que cada dominio expone. Trabajo sobre código
+propio de Micelia (`app/api/v1/gateway.py`) + sus tests; sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = código de los hermanos):**
+- **Proxies genéricos** (`/gateway/{health,research,education,security}/{path}`): pasan el path tal cual → sin contrato
+  hardcodeado que auditar. OK.
+- **Pipeline `research-to-course`** (única ruta con paths/params cableados). Contrastado contra el código real:
+  - canela-molida `app/api/papers.py::search_openalex`: firma `(query, limit=Query(1..200), page, ...)` y `return
+    [work_to_metadata(w).model_dump() ...]` → **devuelve LISTA**, param **`limit`**. Ruta real `/api/papers/search/openalex`
+    (main.py monta routers con prefix `/api`). ✓ ruta y RAG (`/api/rag/query`, body `{question, top_k≤50}`, respuesta con
+    campo real **`contexts`**) ya correctos.
+  - ideacursi-tool `backend/src/main.js`: `app.setGlobalPrefix('api')` + `@Controller('courses')`/`@Post('create')` →
+    ruta real **`/api/courses/create`**.
+- **3 contradicciones encontradas (todas internas a Micelia, en `gateway.py`):** (1) enviaba `per_page` en vez de `limit`
+  → canela ignoraba `max_papers` y devolvía su default 25; (2) leía `papers.get("results", [])` sobre una respuesta que es
+  una **lista** → `AttributeError` → pipeline 500 en real; (3) POST a `/courses/create` sin el prefijo `/api` → 404 en real.
+  Los **mocks de `tests/test_api_gateway_codex.py` codificaban el contrato ficticio** (`{"results": [...]}`) — mismo
+  antipatrón que Ciclo 37 corrigió en el service-registry: los tests pasaban verdes contra una API que no existe.
+
+**Hecho (2 commits atómicos):**
+- `fix(gateway)`: en `app/api/v1/gateway.py`, param `per_page`→`limit`; normaliza la respuesta de openalex como lista
+  (`paper_list = papers if isinstance(papers, list) else papers.get("results", [])`, defensivo por si un dominio
+  compatible envolviera); ruta de curso `/courses/create`→`/api/courses/create`; comentarios que anclan cada contrato a
+  su fuente en el código hermano. Actualiza `tests/test_api_gateway_codex.py`: mocks de `client.get` a la **lista real**
+  de canela (3 tests) y nuevas asserts de `params == {query, limit:50}`, path openalex y prefijo `/api/courses/create`.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1456 pass** + 2 skip, sin cambio en el nº: se corrigieron valores/aserts de tests existentes, no se añadieron tests
+nuevos), cov ✓ (**93.11%**, ≥ gate **92**; ratchet **no-op**, sin statements nuevos de `app/`). Frontend no tocado. Sin
+procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (solo `cli.py`/
+`main.py` sin cubrir, intencional).
+
+**DECISIÓN PENDIENTE (para Jessicache):** Sin novedades propias. Sigue **DP-5** (rebrand `vital-core`→`micelia` de los
+env-vars de integración de los hermanos, con alias retrocompat — deep-work fuera de scope) y las de INFRA del funnel
+(**DP-1..DP-4**). Nota de coherencia: el pipeline `research-to-course` **no tiene mock e2e ni validación live** contra
+canela/ideacursi reales; los contratos se han alineado por lectura de código, no por ejecución cruzada (el guardarraíl
+local-first impide levantar los 3 servicios a la vez de forma rutinaria).
+
+**Mañana (Ciclo 39):** seguir en **coherencia inter-proyecto (#4)** — el pipeline queda alineado, así que auditar los
+**cuerpos/DTOs** que Micelia envía vs lo que los dominios esperan: (a) el `createCourseDto` de ideacursi
+(`backend/src/courses/dto/`) vs el JSON que envía el pipeline (`title/description/target_audience/num_modules/
+source_synthesis`) — verificar nombres de campo; (b) el `RAGQuery`/`RAGResponse` de canela ya validado. Alternativa si se
+quiere volver a cobertura: `cli.py`/`main.py` vía subprocess. No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 37 (COHERENCIA INTER-PROYECTO #4: corrige puertos **ficticios** del service-registry en el mock e2e + contrato biohack — alinea con `config.py`/`docker-compose` reales · verify verde 1456 pass · cov 93.11% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 36 → no aplica prioridad #1 (red→green). Cobertura de módulos en
