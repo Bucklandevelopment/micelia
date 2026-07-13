@@ -40,3 +40,8 @@ async def test_services_status(client):
     assert response.status_code == 200
     data = response.json()
     assert "services" in data
+    # Cada entrada expone el contrato completo de ServiceStatus, incluida la
+    # `version` que el dominio reporta en su health-check (Ciclo 42: antes se
+    # capturaba en ServiceInfo pero /services nunca la devolvía).
+    for entry in data["services"].values():
+        assert "version" in entry

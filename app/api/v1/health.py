@@ -18,6 +18,13 @@ class ServiceStatus(BaseModel):
     healthy: bool
     latency_ms: float | None = None
     error: str | None = None
+    # Versión reportada por el dominio en el body de su health-check. La
+    # registra `ServiceRegistry._check_health` (`data.get("version")`) y aquí se
+    # propaga al consumidor. Contrato auditado (Ciclo 42): biohack
+    # (/api/v1/service-health), ideacursi (/api/health) y cybertools (/health)
+    # devuelven `version` a nivel superior; canela (/health) NO lo emite → queda
+    # None (lectura defensiva, sin romper). Ver DP-8 en el ITERATION_LOG.
+    version: str | None = None
 
 
 class SystemHealth(BaseModel):
@@ -130,7 +137,8 @@ async def services_status(request: Request):
             "enabled": status.enabled,
             "healthy": status.healthy,
             "latency_ms": status.latency_ms,
-            "error": status.error
+            "error": status.error,
+            "version": status.version
         }
 
     return {"services": results}

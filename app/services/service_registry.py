@@ -292,7 +292,12 @@ class ServiceRegistry:
             enabled=service.enabled,
             healthy=service.healthy,
             latency_ms=service.latency_ms,
-            error=service.error
+            error=service.error,
+            # `version` la captura `_check_health` desde el body del health-check
+            # del dominio; antes se quedaba en ServiceInfo sin llegar a ningún
+            # endpoint. Se propaga para que /api/v1/health/{services,detailed} la
+            # expongan (contrato auditado en Ciclo 42).
+            version=service.version
         )
 
     def get_all_services(self) -> Dict[str, ServiceInfo]:

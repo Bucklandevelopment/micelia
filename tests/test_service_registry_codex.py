@@ -124,11 +124,23 @@ def test_log_failure_all_branches():
 async def test_check_service_found(registry):
     registry.services["health"].healthy = True
     registry.services["health"].latency_ms = 12.5
+    # La versión que _check_health captura del body del dominio debe llegar al
+    # ServiceStatus (antes se quedaba en ServiceInfo y no la exponía nadie).
+    registry.services["health"].version = "1.2.3"
     status = await registry.check_service("health")
     assert isinstance(status, ServiceStatus)
     assert status.name == "health"
     assert status.healthy is True
     assert status.latency_ms == 12.5
+    assert status.version == "1.2.3"
+
+
+async def test_check_service_version_defaults_none_when_domain_omits_it(registry):
+    # canela (/health) no emite `version` a nivel superior → _check_health deja
+    # ServiceInfo.version en None y check_service debe propagar None sin romper.
+    registry.services["health"].version = None
+    status = await registry.check_service("health")
+    assert status.version is None
 
 
 async def test_check_service_not_found(registry):
