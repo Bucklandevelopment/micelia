@@ -16,6 +16,63 @@
 
 ---
 
+## 2026-07-13 — Ciclo 33 (`app/events/store.py` 47→100% — abre el eje de PERSISTENCIA/event-store · verify verde 1367 pass limpio · cov 91.72% limpio · gate 89→90)
+
+**Contexto:** `make verify` estaba VERDE al cierre de Ciclo 32 → no aplica prioridad #1 (red→green). El roadmap
+v0.1 sigue esencialmente cerrado salvo los 2 ítems humano-dependientes, así que el día cae en **prioridad #3
+(subir cobertura)**. Siguiendo la recomendación de Ciclo 32, se ataca el mayor bloque restante con valor real:
+`app/events/store.py` (128 stmts, **47%**, 68 miss), el `EventStore` async (event sourcing append-only sobre
+PostgreSQL/SQLAlchemy). **Corrección a la recomendación de ayer:** el log sugería `aiosqlite` en memoria como
+alternativa, pero **`aiosqlite` NO está instalado** y los guardarraíles prohíben tocar `uv.lock`/añadir deps.
+El patrón canónico ya presente en el repo es la **`AsyncSession` mockeada** (`test_prompt_store_codex.py`,
+Ciclo 14); `EventStore` tiene la misma forma (engine + `async_session` factory + `async with self.async_session()`),
+así que se clona ese patrón. Trabajo autónomo-seguro: un fichero de tests nuevo + roadmap + nota del Makefile,
+sin infra/red/`.env`/`uv.lock`, sin tocar runtime.
+
+**Hecho (3 commits atómicos):**
+- `test(events)` (`b72fd83`): `tests/test_events_store_codex.py`, **+22 tests**, `AsyncSession` mockeada
+  (`MagicMock`/`AsyncMock`), helpers `_mock_session_ctx`/`_scalars_result`/`_make_event_model(spec=IdmEventModel)`.
+  - `initialize()`: `create_async_engine`/`async_sessionmaker` monkeypatcheados en `app.events.store` + fake de
+    engine con `begin()` async-CM y `conn.run_sync(Base.metadata.create_all)` awaited (éxito + re-raise en error).
+  - `close()`: engine presente→`dispose()` awaited / `engine=None`→no-op.
+  - `append_event()`: happy (devuelve `UUID` + `add`/`commit`), todos los campos (assert del objeto añadido),
+    defaults (`payload`/`event_metadata`→`{}`, `tags`→`[]`), y **rama legacy `source="idm-core"`→`"micelia"`
+    con `DeprecationWarning`** (`pytest.warns`).
+  - `query_events()`: sin filtros (rama `if conditions` falsa), todos los filtros a la vez (todas las ramas
+    verdaderas + limit/offset), vacío.
+  - `get_by_correlation()`, `get_timeline()` (con/sin `categories`, vacío).
+  - `get_stats()`: poblado, con `since`, vacío — `by_category`/`by_source` construidos desde `result.all()` de
+    tuplas (3 `execute` por `side_effect`).
+  - `_event_to_dict()`: full fields, `correlation_id=None`, `timestamp=None` (ramas ternarias de serialización).
+  - Reporte term-missing: `store.py` **128/128, 0 miss, 100%**.
+- `chore(cov)` (`4d48fa0`): **ratchet gate 89→90** (`floor(91.72)−1 = 90`) en `Makefile` (target `cov`:
+  `--cov-fail-under` + comentario + nota) y `docs/COVERAGE_ROADMAP.md` (cabecera 90.74→91.72% + línea Ciclo 33).
+  No toca infra ni `uv.lock`.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff), typecheck ✓ (mypy, 0 errores), test ✓ (**1367 pass**
++ 2 skip en checkout limpio, era 1345 en Ciclo 32: +22), cov ✓ (**91.72%** limpio, ≥ gate **90**). Frontend no
+tocado. Sin procesos residuales (tests in-process, sin Docker).
+- **Medición honesta:** el fichero suelto ajeno `tests/test_api_prompts_codex.py` sigue sin committear; el %
+  limpio se mide stasheándolo antes de `cov` (así se corrió verify con gate 89 y con gate 90, ambos verdes).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de
+frontend; (2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Cobertura: cerrado el mayor
+bloque de persistencia; los mayores restantes pasan a ser de seguridad/infra: `app/core/security.py` (257 stmts,
+**76%**, rate limiter + JWT + verify_api_key global), más colas menores en `prompts.py` (18 miss) y `health.py`
+(5 miss). `app/cli.py` (218, 0%) y `app/main.py` (186, 0%) siguen intencionalmente sin cubrir.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Siguen abiertas: (a) el fichero suelto sin committear
+`tests/test_api_prompts_codex.py` (arrastrado desde Ciclo 27; se mide cobertura limpia con stash — no se toca);
+(b) hosting/DNS/TLS de `*.idmmortality.com` + retorno del funnel público (aparcado Ciclo 16).
+
+**Mañana (Ciclo 34):** recomendado (a) `app/core/security.py` (76%→objetivo 100%) — rate limiter + JWT +
+`verify_api_key`, cubrible con `Request` mockeado y `settings` monkeypatcheados, sin arrancar recursos.
+Alternativa combinada de bajo riesgo (b): colas de `prompts.py` (18 miss) + `health.py` (5 miss) en un ciclo
+único. No tocar infra ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 32 (routers `gateway.py` 60→100% + `events.py` 68→100% — CIERRA los 2 routers parciales restantes · verify verde 1345 pass limpio · cov 90.74% limpio · gate 89 sin cambio)
 
 **Contexto:** misma ejecución que Ciclo 31 (arriba). Cerrada la contabilidad de Ciclo 31 (SDK client) y con
