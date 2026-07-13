@@ -16,6 +16,78 @@
 
 ---
 
+## 2026-07-13 — Ciclo 29 (router `system.py` 35→100% — CIERRA el mayor bloque descubierto del proyecto · verify verde 1272 pass · cov 87.57% limpio · gate 81→86)
+
+**Contexto:** Ciclo 28 (misma fecha) cerró `frangels.py` 36→100% dejando `make verify` verde (1192 pass,
+cov 82.57% limpio, gate 81) y recomendó como "Mañana (Ciclo 29)" la opción **(a) recomendada**:
+`app/api/v1/system.py` (414 stmts, **35%**, 270 miss) — **el mayor bloque descubierto que quedaba en el
+proyecto**, router de integración macOS/OSASCRIPT (28 endpoints). Prioridad #1 (rojo→verde) satisfecha en
+baseline (confirmado antes de tocar nada: 1192 pass + 2 skip, cov 83%/82.57% limpio, gate 81) y hito DoD
+≥70% cumplido → el día cae en **prioridad #3 (roadmap: subir cobertura)**. Trabajo autónomo-seguro: solo un
+fichero de tests + Makefile + docs, sin infra/red/`.env`/`uv.lock`, sin tocar runtime de `app/`.
+
+**Hecho (3 commits atómicos):**
+- `test(api)` (`system.py`): nuevo `tests/test_api_system_codex.py` (**+80 tests**). Convención `_codex`
+  (plantilla `test_api_frangels_codex.py`). Los 28 endpoints comparten forma: guard
+  `check_osascript_enabled()` (503 si `settings.osascript_enabled=False`) → método **síncrono** del singleton
+  `osascript_service` (import a nivel de módulo) → `await audit_logger.log_operation(...)`. Se monkeypatchea
+  el nombre enlazado en el namespace del router (`system.osascript_service`) a un `MagicMock` síncrono → el
+  singleton real (que hace `subprocess.run` de `osascript` en macOS) **nunca se toca**: sin subprocess, sin
+  macOS. `audit_logger` se usa **real** y degrada solo: `log_operation` lee
+  `getattr(request.app.state,'event_store',None)` → la `FastAPI()` local no tiene `event_store` → no toca
+  disco/DB/red. Auth **real** con key `{"all"}` (`api_key_manager.generate_key`, rate_limit 100000). Cubiertas
+  las **3 formas** de endpoint y sus ramas: **lectura GET** (happy + `except OSAScriptError`→500; params
+  opcionales sanitizados con/sin valor en `/calendar/today`,`/reminders`,`/notes`; `/music/current` track
+  truthy→`{playing:True}` vs None→`{playing:False}`; `/contacts/search` `q` min_length→422); **escritura POST**
+  (`success`→200 con eco / falsy→500 + 422 de body incompleto); **high-risk con `OSAScriptSecurityContext`**
+  (`/volume`,`/dark-mode/toggle`,`/safari/open`,`/finder/reveal`,`/clipboard`: happy/500/**403** forzando
+  `settings.osascript_disabled_operations`); **validadores de modelos** (subtitle/location/notes con `""`
+  **explícito** para que Pydantic v2 ejecute el `return v` del branch falsy —los defaults no disparan el
+  validador—, sound/voice fuera de whitelist→fallback `default`/`Samantha`, clamp `set_volume` >100→100,
+  `validate_url` esquema no-http→422); y cross-cutting (**503** con `osascript_enabled=False` parametrizado,
+  **400** de `validate_path` fuera de prefijos permitidos (`/etc/passwd`), **401** parametrizado con
+  `osascript_require_auth` forzado a True → `verify_api_key` levanta durante la resolución de dependencias,
+  **antes** del rate-limit —clave: sin forzarlo, el entorno resuelve auth opcional y el limiter por-IP
+  devolvía 429—). **`system.py` 414/414 stmts, 100%, 0 miss.** Ni subprocess, ni infra, ni red, ni `.env`.
+- `chore(cov)`: total (checkout limpio) 82.57%→**87.57%** (+5.00 pts, el mayor salto de un ciclo). Ratchet
+  **efectivo**: `floor(87.57)−1 = 86` → gate `--cov-fail-under` **81→86** en `Makefile` (target `cov` +
+  comentario + nota). `docs/COVERAGE_ROADMAP.md`: header (medición 82.57→87.57% limpio, gate 81→86, margen
+  +17.57) + entrada Ciclo 29 en el histórico.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (`ruff` app/sdk/tests), typecheck ✓ (`mypy app/`, 0 errores),
+test ✓ (**1272 pass** + 2 skip, era 1192: +80 nuevos), cov ✓ (**87.83%** con el fichero suelto / **87.57%** en
+checkout limpio, ambos ≥ gate **86**). Frontend no tocado (no aplica `frontend-lint`). Sin procesos residuales
+(ciclo solo-tests, sin runtime).
+
+> **NOTA de medición (honestidad, igual que Ciclos 27-28):** el árbol de trabajo sigue incluyendo el cambio
+> **pre-existente sin commitear ajeno a este ciclo** (`tests/test_api_prompts_codex.py`, no tocado por Ciclo 29).
+> El **árbol commiteado por este ciclo** (sin ese fichero, medido vía `git stash push` → `pytest --cov=app` →
+> `stash pop`) mide **87.57%** (1254 pass); con el fichero suelto daría 87.83% (1272 pass). El ratchet a **86**
+> se fija sobre la medición **limpia** (`floor(87.57)−1 = 86`), segura en checkout limpio (margen +1.57). Sigue
+> pendiente para Jessicache: decidir qué hacer con ese cambio suelto de `test_api_prompts_codex.py`.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura:
+con `system.py` cerrado, **ya no quedan bloques descubiertos grandes**; los mayores huecos restantes son
+`app/api/v1/energy.py` (133 stmts, **33%**, 89 miss), `app/sdk/client.py` (197 stmts, **59%**, 80 miss — cliente
+HTTP), `app/api/v1/gateway.py` (70 stmts, 60%), `app/api/v1/events.py` (69 stmts, 68%). Dir legacy vacío
+`micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin
+`/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 30 — NEXT STEP):** cerrar `app/api/v1/energy.py` (133 stmts, 33%, 89 miss — router de
+energía/presupuesto energético; inspeccionar dependencias y montarlo sobre `FastAPI()` local con los servicios
+mockeados, mismo patrón). Alternativa del eje SDK: **`app/sdk/client.py`** (197 stmts, 59%, 80 miss — cliente
+HTTP con `respx`/`httpx` mock, primer módulo del SDK). **Recomendado: (a) `energy.py`** por ser el mayor router
+descubierto que queda y seguir el patrón ya dominado. No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 28 (router `frangels.py` 36→100% — PRIMER router del eje providers · verify verde 1192 pass · cov 82.57% limpio · gate 80→81)
 
 **Contexto:** Ciclo 27 (misma fecha) cerró los 8 módulos de servicio near-100% → 100% dejando `make verify` verde
