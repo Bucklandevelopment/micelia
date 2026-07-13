@@ -13,6 +13,7 @@ import redis.asyncio as redis
 
 from app.core.config import settings
 from app.core.logging import log
+from app.sdk.models import EVENT_CHANNELS
 
 
 class EventBus:
@@ -168,16 +169,12 @@ class EventBus:
     # Canales predefinidos del Panel IDM
     # =========================================================================
 
-    CHANNELS = {
-        "health": "idm.health",
-        "education": "idm.education",
-        "identity": "idm.identity",
-        "security": "idm.security",
-        "system": "idm.system",
-        "ai": "idm.ai",
-        "energy": "idm.energy",
-        "prompts": "idm.prompts"
-    }
+    # Los 7 canales públicos son FUENTE ÚNICA en app.sdk.models.EVENT_CHANNELS
+    # (el contrato compartido con los SDK de dominio); se derivan de ahí para
+    # que runtime y contrato no puedan derivar (invariante en test_idm_sdk.py).
+    # "prompts" es un canal INTERNO del orquestador (ningún dominio lo
+    # publica/consume), por eso vive solo aquí y no en el mapa público del SDK.
+    CHANNELS = {**EVENT_CHANNELS, "prompts": "idm.prompts"}
 
     async def publish_health_event(self, event_type: str, data: dict):
         """Publica evento de salud"""

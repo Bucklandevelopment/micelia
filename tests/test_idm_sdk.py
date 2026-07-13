@@ -92,6 +92,24 @@ class TestConstants:
         assert EVENT_CHANNELS["security"] == "idm.security"
         assert EVENT_CHANNELS["system"] == "idm.system"
 
+    def test_eventbus_channels_derive_from_sdk(self):
+        """Invariante anti-drift: EventBus.CHANNELS es superset del contrato
+        público del SDK (EVENT_CHANNELS) y todo canal compartido tiene un valor
+        IDÉNTICO. Caza que runtime y contrato deriven (ej. renombrar el prefijo
+        en un solo sitio). "prompts" es interno del orquestador → solo en
+        EventBus.CHANNELS, no en el mapa público."""
+        from app.services.event_bus import EventBus
+
+        for category, channel in EVENT_CHANNELS.items():
+            assert EventBus.CHANNELS.get(category) == channel, (
+                f"drift en canal '{category}': SDK={channel} "
+                f"vs EventBus={EventBus.CHANNELS.get(category)}"
+            )
+        # El único canal que EventBus añade sobre el contrato público es el
+        # interno "prompts".
+        extra = set(EventBus.CHANNELS) - set(EVENT_CHANNELS)
+        assert extra == {"prompts"}, f"canales extra inesperados: {extra}"
+
 
 # =============================================================================
 # Client tests

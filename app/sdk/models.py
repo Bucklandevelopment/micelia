@@ -60,7 +60,23 @@ class IdmEvent:
 # Valid categories for events (aligned with EventBus channels)
 VALID_CATEGORIES = {"health", "education", "research", "security", "system", "identity"}
 
-# Map of category -> Redis pub/sub channel (aligned with EventBus.CHANNELS)
+# Map of category -> Redis pub/sub channel.
+#
+# FUENTE ÚNICA de los canales públicos del ecosistema: `EventBus.CHANNELS`
+# (app/services/event_bus.py) se construye a partir de este mapa, de modo que la
+# runtime del orquestador y este contrato del SDK no puedan derivar (invariante
+# cubierta por tests/test_idm_sdk.py::test_eventbus_channels_derive_from_sdk).
+#
+# DRIFT INTER-PROYECTO CONOCIDO (ver DP-7 en docs/ITERATION_LOG.md 2026-07-13,
+# Ciclo 41): el orquestador usa el prefijo `idm.*` mientras que los 5 SDK de
+# dominio vendorizados (biohack, canela, cybertools, codking, auto-mat-ion)
+# publican/suscriben en `vital.*` (herencia de la era vital-core). El destino del
+# rebrand es `micelia.*`, que hoy no usa NADIE. Elegir el namespace canónico es
+# una migración coordinada de los 6 servicios (irreversible) → DECISIÓN PENDIENTE,
+# no se toca aquí de forma unilateral. Hoy el drift es LATENTE: Micelia no se
+# suscribe a canales de dominio en código (solo publica `idm.prompts` interno y
+# consume eventos de dominio por el Event Store REST, donde los source-id sí
+# coinciden), pero cualquier consumo pub/sub cruzado fallaría en silencio.
 EVENT_CHANNELS = {
     "health": "idm.health",
     "education": "idm.education",

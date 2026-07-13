@@ -16,6 +16,73 @@
 
 ---
 
+## 2026-07-13 — Ciclo 41 (COHERENCIA INTER-PROYECTO #7: audita el **Event Bus** — source-ids y nombres de canal/evento que Micelia publica/consume vs lo que emiten los 5 SDK de dominio. Los **source-ids y event_types coinciden**; hallado **drift de namespace de canal**: Micelia usa `idm.*` y los 5 dominios `vital.*` → documentado como **DP-7** (decisión de migración coordinada, no ejecutable unilateralmente). Deliverable Micelia-only: **unifica el mapa de canales DUPLICADO** — `EventBus.CHANNELS` se deriva de `sdk.models.EVENT_CHANNELS` (fuente única) · +1 test de invariante anti-drift · verify verde 1458 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 40 → no aplica prioridad #1 (red→green). Ciclo 40 recomendó seguir en
+**coherencia inter-proyecto (#4)** auditando el **Event Bus**: los `source-id` y nombres de canal/evento que Micelia
+publica/consume (`app/services/event_bus.py`, canales Redis, `app/sdk/models.py`) contra los que cada dominio emite según su
+SDK. Trabajo sobre código propio de Micelia + su test; sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = SDK vendorizado de los 5 dominios):**
+- **Source-ids** — cada SDK publica con `source = self.service_name` (`biohack`, `canela`, `cybertools`, `codking`→
+  `cybertools`, `auto-mat-ion`). El enum canónico de `EventCreate`/`IdmEvent` en Micelia (`biohack, canela, ideacursi,
+  cybertools, auto-mat-ion, micelia`) **coincide**. Sin drift de source-id. ✓
+- **Event-types** — son strings libres que el payload propaga tal cual (`paper.ingested`, `wifi.analyzed`,
+  `security.alert`, `threat.detected`, `achievement.unlocked`…); ni Micelia ni los SDK los validan contra una enum, así que
+  no hay contrato hardcodeado que pueda derivar. ✓
+- **DRIFT ENCONTRADO — namespace de canal Redis (inter-proyecto):** los **5 SDK de dominio** publican y se suscriben en
+  **`vital.{category}`** (`biohack-app/.../vital_sdk/models.py:67`, `canela-molida/.../vital_sdk/events.py:19`,
+  `cybertools/.../vital_sdk/models.py:53`, `codking/.../vital_sdk/events.py:20`, `auto-mat-ion/src/integrations/vital-core.ts:171`
+  `` `vital.${event.category}` ``). Micelia publica/expone **`idm.{category}`** (`EventBus.CHANNELS`, `sdk/models.EVENT_CHANNELS`).
+  Un publisher en `vital.security` y un subscriber en `idm.security` están en **canales Redis distintos** → entrega
+  pub/sub cruzada fallaría **en silencio**. El destino del rebrand es `micelia.*`, que **hoy no usa NADIE**. → **DP-7**.
+- **Severidad hoy = LATENTE:** Micelia **no se suscribe** a canales de dominio en código (`app/` solo publica
+  `idm.prompts` interno vía `prompt_agent`/`prompt_executor`/`scheduler`); el flujo real dominio→Micelia va por el **Event
+  Store REST** (`POST /api/v1/events`, donde los **source-id sí coinciden**), no por pub/sub. Pero cualquier consumo
+  pub/sub cruzado que se cablee (los SDK de dominio SÍ exponen `subscribe(category)`) romperá sin error visible.
+- **Contradicción interna (DRY, antipatrón de Ciclos 37–40):** el mapa `category→canal` estaba **DUPLICADO** dentro de
+  Micelia — `EventBus.CHANNELS` (event_bus.py) y `EVENT_CHANNELS` (sdk/models.py), y el test que decía "must match
+  EventBus.CHANNELS" solo **fijaba literales** (`assert == "idm.health"`), no cruzaba los dos mapas → podían derivar sin
+  que ningún test lo cazara.
+
+**Hecho (1 commit atómico):**
+- `refactor(events)`: `EventBus.CHANNELS` pasa a **derivarse** de `app.sdk.models.EVENT_CHANNELS`
+  (`CHANNELS = {**EVENT_CHANNELS, "prompts": "idm.prompts"}`) → **fuente única** de los 7 canales públicos; `prompts`
+  queda como canal **interno** del orquestador (ningún dominio lo publica/consume) solo en `EventBus`. Import limpio
+  (`sdk.models` no depende de `services`, sin ciclo). Comentario en `EVENT_CHANNELS` que ancla el **drift DP-7** al código
+  real de los 5 hermanos. **Test nuevo** `test_eventbus_channels_derive_from_sdk`: invariante de que `EventBus.CHANNELS`
+  es superset de `EVENT_CHANNELS` con valores idénticos por clave compartida y que el único canal extra es `prompts`
+  (caza un futuro renombrado de prefijo en un solo sitio). Sin cambio de comportamiento observable (valores idénticos).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1458 pass** + 2 skip, **+1** por el test de invariante), cov ✓ (**93.12%**, ≥ gate **92**; `event_bus.py` y
+`sdk/models.py` siguen al **100%**). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué
+gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** **NUEVA — DP-7 (namespace canónico del Event Bus Redis):** hay **tres eras** de
+prefijo de canal conviviendo: `idm.*` (orquestador Micelia, herencia Panel IDM), `vital.*` (los 5 SDK de dominio, herencia
+vital-core) y `micelia.*` (destino del rebrand, sin usar). Para que el pub/sub cruzado funcione, los 6 servicios deben
+compartir prefijo. Elegir cuál y migrar es **irreversible y cross-project** (renombra canales en runtime de 6 repos, con
+sus tests que fijan `vital.*`/`idm.*`) → **no se ejecuta unilateralmente**; el guardarraíl prohíbe renombrar en profundidad
+los SDK hermanos. Opciones: (a) alinear Micelia a `vital.*` (1 cambio, 6/6 alineados ya, pero se aleja del rebrand);
+(b) migrar los 6 a `micelia.*` (coherente con el rebrand, toca 6 repos + sus tests); (c) capa de compat que acepte ambos
+prefijos. Relacionada con **DP-5** (rebrand `vital-core`→`micelia` de env-vars de hermanos). Siguen abiertas **DP-6**
+(semántica de `user_id` en el pipeline research-to-course), **DP-5** y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 42):** el Event Bus queda auditado (source-ids y event_types coinciden; namespace de canal documentado como
+DP-7 y mapa interno unificado sin drift). Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de
+`HealthResponse`** — los campos que Micelia espera en `service_registry.check_service` / `/api/v1/health/*` (`status`,
+`version`, `capabilities`, `dependencies`…) vs el shape REAL que cada dominio devuelve en su endpoint de health (biohack
+`/api/v1/service-health` con formato ecosystem, canela/cybertools `/health`, ideacursi `/api/health`) — verificar que
+Micelia no lea campos que un dominio no emite. Alternativa a cobertura: `cli.py`/`main.py` vía subprocess. No tocar infra,
+`.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 40 (COHERENCIA INTER-PROYECTO #6: audita los **health-check paths** que Micelia sondea contra los endpoints REALES que cada dominio sirve — los 4 coinciden — y elimina el **mapa de health-endpoints DUPLICADO** del service-registry unificándolo en una fuente única `HEALTH_ENDPOINTS` · +1 test de invariante · verify verde 1457 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 39 → no aplica prioridad #1 (red→green). Ciclo 39 recomendó seguir en
