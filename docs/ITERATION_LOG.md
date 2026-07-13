@@ -16,6 +16,78 @@
 
 ---
 
+## 2026-07-13 — Ciclo 28 (router `frangels.py` 36→100% — PRIMER router del eje providers · verify verde 1192 pass · cov 82.57% limpio · gate 80→81)
+
+**Contexto:** Ciclo 27 (misma fecha) cerró los 8 módulos de servicio near-100% → 100% dejando `make verify` verde
+(1154 pass, cov 81.09%, gate 80) y recomendó como "Mañana (Ciclo 28)" **atacar superficie grande**, opción (a)
+**recomendada**: `app/api/v1/frangels.py` (187 stmts, **36%**, 120 miss — el mayor router sin cubrir), montándolo
+sobre `FastAPI()` local con las dependencias mockeadas (mismo patrón de Ciclos 16-25). Prioridad #1 (rojo→verde)
+satisfecha en baseline y hito DoD ≥70% cumplido → el día cae en **prioridad #3 (roadmap: subir cobertura)**.
+Baseline confirmado verde antes de tocar nada (make verify: 1154 pass, cov 81.09% con fichero suelto; `frangels.py`
+187/120 miss a 36%). Trabajo autónomo-seguro: solo un fichero de tests + Makefile + docs, sin infra/red/`.env`/
+`uv.lock`, sin tocar runtime de `app/`.
+
+**Hecho (3 commits atómicos):**
+- `test(api)` (`frangels.py`): nuevo `tests/test_api_frangels_codex.py` (**+38 tests**). Convención `_codex`
+  (plantilla `test_api_budget_codex.py`). El router obtiene sus tres singletons por **import a nivel de módulo**
+  (`get_provider_store`/`get_quota_manager`/`get_frangels_orchestrator`), así que se monkeypatchea el nombre ya
+  enlazado en el namespace del router (`app.api.v1.frangels.*`) → los singletons reales (que tocan almacenamiento
+  encriptado en disco y el orquestador httpx/ngrok) **nunca se construyen**. Store/quota-manager = `MagicMock`
+  síncrono (ningún método se `await`ea); orquestador con `chat`/`test_provider` = `AsyncMock`. `ANGEL_REGISTRY`,
+  `AngelCategory`, `PrivacyLevel` se usan **reales**; `QuotaStatus`/`InferenceResult` se construyen **reales** para
+  que `asdict`/la proyección JSON queden serializables. Cubre los **15 endpoints** y todas sus ramas: `/providers`
+  (ternario `quota` presente vs None + `summary` + `by_category`), `GET /providers/{id}` (404 + asdict con/sin
+  quota), `POST /providers` (400 desconocido / 400 api_key vacía / 422 body incompleto + assert `set` con `strip`),
+  `DELETE` (404 + happy), `PATCH /toggle` (404 / 400 no-configurado (`store.get`→None) / enable / disable), `POST
+  /test` (404 / happy / **rama `except`**→`{success:false, latency_ms:0}` sin 500), `/usage`, `/quotas` (summary
+  `exhausted`+`warning` con QuotaStatus a 100%/85%/10%), `/quotas/{id}` (404/happy), `POST /chat` (happy con
+  proyección `usage`/`message`; `privacy_level` válido→coerción a `PrivacyLevel` / inválido→**rama `except
+  ValueError: pass`** / error del orquestador→**502**), `/chat/available-providers` (`side_effect` de `store.get`
+  y `can_use` para ejercer los **3 `continue`** —no-INFERENCE, cred None/no-enabled, `can_use` False— + orden por
+  tier premium-first), `/status` (`available_by_category` contando enabled+can_use), `POST /sync-env` (delta
+  `imported = after-before` vía `list_configured.side_effect`), `GET /export-env` (masking **>8 chars** parcial vs
+  **≤8 chars** total), y `test_requires_auth` **parametrizado** sobre 9 endpoints (401/403). **`frangels.py`
+  187/187 stmts, 100%, 0 miss.** Ni infra, ni red, ni `.env`.
+- `chore(cov)`: total (checkout limpio) 80.83%→**82.57%** (+1.74 pts). Ratchet **efectivo**: `floor(82.57)−1 = 81`
+  → gate `--cov-fail-under` **80→81** en `Makefile` (target `cov` + comentario + nota). `docs/COVERAGE_ROADMAP.md`:
+  header (medición 81.09→82.57% limpio, gate 80→81, margen +12.57) + entrada Ciclo 28 en el histórico.
+- `docs(log)`: esta entrada.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (`ruff` app/sdk/tests), typecheck ✓ (`mypy app/`, 0 errores),
+test ✓ (**1192 pass** + 2 skip, era 1154: +38 nuevos), cov ✓ (**82.83%** con el fichero suelto / **82.57%** en
+checkout limpio, ambos ≥ gate **81**). Frontend no tocado (no aplica `frontend-lint`). Sin procesos residuales
+(ciclo solo-tests, sin runtime).
+
+> **NOTA de medición (honestidad, igual que Ciclo 27):** el árbol de trabajo sigue incluyendo el cambio
+> **pre-existente sin commitear ajeno a este ciclo** (`tests/test_api_prompts_codex.py`, no tocado por Ciclo 28).
+> El **árbol commiteado por este ciclo** (sin ese fichero, medido vía `git stash push` → `pytest --cov=app` →
+> `stash pop`) mide **82.57%** (1154 pass); con el fichero suelto daría 82.83% (1192 pass). El ratchet a **81** se
+> fija sobre la medición **limpia** (`floor(82.57)−1 = 81`), segura en checkout limpio (margen +1.57). Sigue
+> pendiente para Jessicache: decidir qué hacer con ese cambio suelto de `test_api_prompts_codex.py`.
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
+frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura: con
+`frangels.py` cerrado, los mayores huecos que quedan son **routers grandes aún sin cubrir descubiertos al medir el
+baseline**: `app/api/v1/system.py` (414 stmts, **35%**, 270 miss — el mayor bloque descubierto del proyecto ahora),
+`app/api/v1/energy.py` (133 stmts, **33%**, 89 miss), `app/api/v1/gateway.py` (70 stmts, 60%), `app/api/v1/events.py`
+(69 stmts, 68%); y del eje SDK `app/sdk/client.py` (197 stmts, 59%, 80 miss). Dir legacy vacío
+`micelia/vital-core/docs/` sigue en árbol (anotado, intacto). Frontend `middleware.ts`: `PUBLIC_PATHS` sin
+`/register` (funnel APARCADO por Jessicache, Ciclo 16).
+
+**DECISIÓN PENDIENTE:** ninguna nueva. Siguen abiertas (Jessicache): hosting/DNS/TLS de `*.idmmortality.com`
+(Hito 3) y el eventual retorno del funnel público (aparcado desde Ciclo 16).
+
+**Mañana (Ciclo 29 — NEXT STEP):** el mayor bloque descubierto pasa a ser **`app/api/v1/system.py`** (414 stmts,
+35%, 270 miss — router de integración macOS/sistema; inspeccionar dependencias, probablemente `osascript`/`app.state`,
+y montarlo sobre `FastAPI()` local con los servicios mockeados, mismo patrón; gran ganancia de golpe → gate 81→82+).
+Alternativa de menor tamaño pero también alta: **`app/api/v1/energy.py`** (133 stmts, 33%, 89 miss). Candidato del
+eje SDK: **`app/sdk/client.py`** (197 stmts, 59%, 80 miss — cliente HTTP con `respx`/`httpx` mock). **Recomendado:
+(a) `system.py`** por ganancia/esfuerzo. No tocar infra ni `uv.lock`.
+
+**Status: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 27 (cierre de huecos residuales en 8 módulos near-100% → 100% · verify verde 1154 pass · cov 80.70→81.09% · gate 79→80)
 
 **Contexto:** Ciclo 26 (2026-07-12) cerró `osascript.py` 24→100% (el último bloque descubierto grande) dejando `make
