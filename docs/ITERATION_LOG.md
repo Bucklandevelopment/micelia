@@ -64,6 +64,13 @@ autónomo-seguro: solo tests + Makefile + docs, sin infra/red/`.env`/`uv.lock`, 
 test ✓ (**1154 pass** + 2 skip, era 1138: +16 nuevos), cov ✓ (**81.09%** ≥ gate **80**). Frontend no tocado (no
 aplica `frontend-lint`). Sin procesos residuales (ciclo solo-tests, sin runtime).
 
+> **NOTA de medición (honestidad):** el 80.70%→81.09% se midió con el árbol de trabajo tal cual, que incluía un
+> cambio **pre-existente y sin commitear ajeno a este ciclo** (`tests/test_api_prompts_codex.py`, +44 líneas, no
+> tocado por Ciclo 27 y **dejado sin commitear a propósito** — no es mío). El **árbol commiteado por este ciclo**
+> (sin ese fichero) mide **80.83%** (1136 pass), verificado por stash → `make cov` → pop. Sigue **≥ gate 80**
+> (margen +0.83), así que el ratchet es seguro en checkout limpio. Pendiente para Jessicache: decidir qué hacer con
+> ese cambio suelto de `test_api_prompts_codex.py`.
+
 **Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos del
 frontend; (2) actualizar doc canónico `Micelia_Nodo1_Impacto_Socioeconomico.md` con el estado T0. Cobertura: cerrados
 los módulos de servicio near-100%, los mayores huecos que quedan son de **superficie no-crítica o cara de mockear**:
