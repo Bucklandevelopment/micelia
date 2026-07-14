@@ -119,6 +119,29 @@ async def test_create_skill_validation_422():
     assert resp.status_code == 422
 
 
+# El form de crear skill del panel (skills/page.tsx) NO exige description: el input
+# no es `required` y handleSubmit (línea 290) solo guarda name/trigger_pattern/
+# prompt_template. Puede enviar `description: ""`. Guarda el contrato del panel: si
+# SkillCreate.description vuelve a exigir min_length>=1, ese form regresa a 422.
+PANEL_CREATE_SKILL_NO_DESCRIPTION = {
+    "name": "Greet",
+    "description": "",
+    "trigger_pattern": "^hi",
+    "prompt_template": "Say hi: {content}",
+}
+
+
+async def test_create_skill_accepts_panel_empty_description():
+    manager = fake_manager()
+    async with client_for(build_app(manager=manager)) as ac:
+        resp = await ac.post(
+            "/api/v1/skills", json=PANEL_CREATE_SKILL_NO_DESCRIPTION, headers=AUTH
+        )
+    assert resp.status_code == 200, resp.text
+    # description="" llega intacta al manager (no 422 ni coerción a otro valor).
+    assert manager.create_skill.await_args.kwargs["description"] == ""
+
+
 # ==================== GET /skills ====================
 
 

@@ -21,7 +21,12 @@ router = APIRouter(prefix="/skills", dependencies=[Depends(verify_auth)])
 
 class SkillCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    description: str = Field(..., min_length=1, max_length=2000)
+    # El panel (frontend/src/app/skills/page.tsx) NO exige description en el form de
+    # crear skill (handleSubmit solo guarda name/trigger_pattern/prompt_template; el
+    # input de description no es `required`) -> puede enviar "". Requerir min_length=1
+    # daba 422 al crear una skill sin descripción. Se hace opcional (default ""),
+    # consistente con SkillUpdate.description (ya Optional).
+    description: str = Field(default="", max_length=2000)
     trigger_pattern: str = Field(
         ...,
         min_length=1,
