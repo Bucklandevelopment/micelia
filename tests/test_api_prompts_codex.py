@@ -534,6 +534,20 @@ async def test_pipeline_status_with_components():
     assert body["agent"]["last_scan"].startswith("2026-07-12")
     assert body["agent"]["pending_count"] == 3
     assert body["executor"]["completed_today"] == 5
+    # Contrato PipelineStatus del panel (frontend/src/types/api.ts): el endpoint
+    # REMAPEA nombres de atributo -> claves de salida (agent.interval ->
+    # "interval_seconds", agent.last_pending_count -> "pending_count"). Blindamos
+    # el set exacto de claves anidadas + los 3 campos que el mock preparaba pero
+    # el test no asertaba, para que un rename/drop rompa aquí y no en el panel.
+    assert body["agent"].keys() == {
+        "running", "last_scan", "pending_count", "interval_seconds"
+    }
+    assert body["executor"].keys() == {
+        "running", "active_count", "completed_today", "failed_today"
+    }
+    assert body["agent"]["interval_seconds"] == 60  # remapeo interval -> interval_seconds
+    assert body["executor"]["active_count"] == 1
+    assert body["executor"]["failed_today"] == 2
 
 
 async def test_pipeline_pause_with_components():
