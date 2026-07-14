@@ -16,6 +16,68 @@
 
 ---
 
+## 2026-07-14 — Ciclo 51 (PIVOTE de eje: el Event Store está agotado en #4; audito el **gateway** (recomendación Ciclo 50) y descubro que **el panel NO consume ninguna ruta `/gateway/*`** → el ángulo gateway↔panel no tiene consumidor; el gateway es server-to-server (proxy a dominios) y está **100% cubierto + contrato aserto** (headers/body/4 rutas/errores/pipeline canela+ideacursi). Sin trabajo de valor ahí. Reoriento a **prioridad #2 (roadmap)**: reviso `PLAN_MICELIA_v0.md §7 DoD` y encuentro un ítem `[x]` cuya evidencia estaba **incompleta** — *"Los 5 dominios funcionales siguen siendo source-id válidos **sin warnings**"* (riesgo #1 del plan: "test que valida que los 5 sources siguen siendo válidos sin warnings"). El test guardián `test_canonical_sources_unchanged` (6 sources canónicos parametrizados) **solo asertaba el valor de retorno `== src`, NO la ausencia de warning** → un refactor que ampliara el `DeprecationWarning` a cualquier source pasaría el test violando la mitad "sin warnings" del DoD. Deliverable Micelia-only: **fortalecer el guard con `warnings.simplefilter("error")`** (mismo patrón que `test_legacy_source_silent_when_warn_false`) para que CUALQUIER warning sobre un canónico haga fallar el test · probado que el guard caza un warning espurio · verify verde 1477 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 50 (1477 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 50
+recomendó auditar el gateway (gateway↔panel). Trabajo sobre código propio de Micelia (`tests/test_events_store_codex.py`); sin
+tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (dos pasos: descarte del gateway + hallazgo en el DoD):**
+- **Gateway descartado como fuente de valor:** (1) `frontend/src/lib/api.ts` **no llama a ninguna ruta `/gateway/*`** (grep) →
+  el gateway no es consumido por el panel; es un proxy server-to-server a los 4 dominios (`health→biohack`, `research→canela`,
+  `education→ideacursi`, `security→cybertools`) + el pipeline `research-to-course`. El ángulo "shape gateway↔panel" de la
+  recomendación **no tiene consumidor**. (2) `gateway.py` está al **100% de cobertura de líneas** (medido) y sus tests
+  (`test_api_gateway_codex.py`) ya **asertan el contrato**, no solo ejecutan: filtrado de headers (`host`/`content-length` fuera,
+  custom preservado), body solo en POST/PUT/PATCH, las 4 rutas, 404, traducción de errores (Timeout→504/ConnectError→503/
+  genérico→502) y el contrato REAL del pipeline (canela `limit` no `per_page`, ideacursi `/api/courses/create` con el
+  `CreateCourseDto` `{userId, idea, description, studentLevel}`). **Nada de valor que añadir.**
+- **Observación de coherencia (no bug, por diseño):** varios emisores internos usan source-ids **no canónicos** (`gateway`,
+  `osascript`, `routine-sync`, `note`, `prompt_executor`, `google-calendar`) — son granularidad de subsistema interno; `EventCreate.
+  source` admite cualquier `str` y `by_source` tolera cualquier clave (Ciclo 47). Distinto de los 6 sources de dominio/orquestador.
+- **Hallazgo en el DoD (prioridad #2, roadmap):** `PLAN_MICELIA_v0.md §7` marca `[x]` *"Los 5 dominios funcionales... siguen
+  siendo source-id válidos **sin warnings**"* y el riesgo #1 lo mitiga con "test que valida que los 5 sources siguen siendo
+  válidos". El guard real es `test_canonical_sources_unchanged` (parametriza los 6 canónicos) — pero **solo asertaba
+  `_normalize_source(src) == src`**, es decir el **valor**, y NO que no se emitiera warning. La mitad "sin warnings" del invariante
+  del DoD estaba SIN blindar: un cambio a `_normalize_source` que emitiera `DeprecationWarning` para cualquier source (no solo
+  `idm-core`) pasaría el test verde mientras rompe el contrato prometido en el DoD.
+
+**Hecho (1 commit atómico `test(events)` `e7399d5`):**
+- **`test_canonical_sources_unchanged` fortalecido:** ahora envuelve la aserción en `warnings.catch_warnings()` +
+  `warnings.simplefilter("error")` → CUALQUIER warning emitido por `_normalize_source` sobre un source canónico convierte el test
+  en fallo. Mismo patrón que `test_legacy_source_silent_when_warn_false` (que ya usaba `simplefilter("error")` para el filtro de
+  lectura). Cierra la mitad "sin warnings" del invariante del DoD. **Probado** con un `broken_normalize` que warnea: el guard lo
+  caza (el test fallaría), y `_normalize_source` real NO warnea para canónicos (biohack/micelia).
+- Cambio **test-only** (fortalecer un test existente en sitio, sin duplicar): no había defecto de producción; el deliverable es
+  regresión que respalda de verdad un checkbox del DoD que la evidencia previa no cubría por completo (prioridad #2/#3).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores; el cambio no toca
+`app/`), test ✓ (**1477 pass** + 2 skip; sin cambio de conteo: se **fortaleció** el test parametrizado existente, no se añadió uno),
+cov ✓ (**93.12%**, ≥ gate **92**). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway
+ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Observación adyacente (arrastrada de Ciclo 50, no bloqueante):**
+`EventCreate` no expone `causation_id`/`user_id`/`compute_*` que columnas y `append_event` soportan; ningún emisor REST los manda
+hoy, pero un futuro SDK que quisiera emitir cadenas causales por REST los perdería (`extra='ignore'`). Candidato a auditar si
+aparece un emisor. Siguen abiertas **DP-9** (paginación con total global, Ciclo 46), **DP-8** (canela sin `version` en
+health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y
+las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 52):** el eje #4 del Event Store está agotado (Ciclos 43–51: request/response/query/read-shapes/stats/timeline/
+by-correlation/create-input auditados sin drift + regresión; gateway 100% cubierto y aserto; guard de sources canónicos blindado).
+Siguiente paso recomendado, **prioridad #2 (roadmap) o #3 (cobertura con valor) en un router que el panel SÍ consuma**: candidato
+concreto = **`GET /api/v1/prompts` / `PromptListResponse`** (el panel lo consume intensamente vía `promptsApi`, ~20 métodos en
+`lib/api.ts`), auditar que el shape que devuelve `list_prompts`/`_prompt_to_dict` casa con `PromptListResponse`/`Prompt` del panel
+(`frontend/src/types/api.ts`) — mismo método que Ciclos 45–46 aplicó a eventos, sobre una superficie de contrato más grande y con
+consumidor real en el panel. Alternativa: `cli.py`/`main.py` vía subprocess (cobertura de bajo riesgo). No tocar infra, `.env` ni
+`uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 50 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `POST /api/v1/events` (`create_event` → `EventCreate`)** — (a) ¿TODOS los campos que `EventCreate` acepta se propagan a `append_event`/persistencia, o alguno se pierde en el mapeo request→store como pasó con `correlation_id` (Ciclo 43)?; (b) ¿`EventCreateResponse` `{event_id, status, timestamp}` casa con lo que el SDK/`eventsApi.create()` espera? **CONCLUSIÓN: SIN drift** — (a) los **9 campos** de `EventCreate` (category, subcategory, source, action, event_type, payload, metadata, tags, correlation_id) se reenvían **todos** a `append_event`, con el remapeo de nombre correcto `metadata`→`event_metadata` (`events.py:230-240`). `append_event` acepta **más** parámetros (`causation_id`, `user_id`, `compute_*`) que `EventCreate` NO expone, pero eso **no es un drop silencioso** como fue `correlation_id`: el SDK in-tree (`IdmEvent`/`publish_event`, docstring "Aligns with the EventCreate schema") manda **exactamente esos 9 campos y ninguno más** (grep confirma que `app/sdk/` no menciona `causation_id`/`compute_*`/`occurred_at`) → REST y SDK son simétricos; los extras de `append_event` los rellenan **callers internos Python** (`security.py`, `gateway.py`, `prompt_executor.py`) que llaman la API Python directa, no por REST → ausencia **por diseño** (contrato REST mínimo), no pérdida. (b) `create_event` devuelve `{event_id, status:"created", timestamp}` con `response_model=EventCreateResponse` que fija el shape en runtime y OpenAPI; el SDK lee `data.get("event_id")` → match (ya auditado Ciclo 44, cubierto por `test_create_event_response_matches_output_contract`). **Gap adyacente encontrado (cobertura, no correctitud):** `test_create_event_happy_forwards_all_fields` **enviaba** `payload`/`action`/`event_type` en el body pero **NO asertaba su reenvío** —solo 6 de los 9 campos tenían aserción—; `payload` es el **dato central** del evento → una regresión que dropee `payload=event.payload` o rompa el mapeo de `action`/`event_type` corrompería cada evento sin cazarlo ningún test. Deliverable Micelia-only: **+1 test** que asserta la fidelidad de los 3 campos restantes (payload intacto incl. estructura anidada) · verify verde 1477 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 49 (1476 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 49
