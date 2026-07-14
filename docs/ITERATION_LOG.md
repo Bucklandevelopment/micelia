@@ -16,6 +16,62 @@
 
 ---
 
+## 2026-07-14 — Ciclo 59 (**CUARTO DRIFT REAL del eje de contratos — el "candidato caliente" que C58 predijo, y se ARREGLA**: sigo la recomendación de C58 (continuar el barrido de escritura/POST campo-a-campo, "revisar `classifyPrompt` primero: `PromptClassify` exige `category` sin default → ¿422 si el panel lo omite?"). **Confirmado como DRIFT REAL con 422 reproducido**: el panel tipa `classifyPrompt(id, data: { category?; tags? })` (`api.ts:338`, ambos opcionales) y el botón **"Classify" del inbox** (`InboxPanel.tsx:135`) llama `classify.mutate({ id, data: {} })` con **body vacío `{}`** (intención: auto-clasificar, mover `captured→classified` sin que el humano elija categoría). Pero `PromptClassify.category` (`prompts.py:61`) era **`str` sin default** → Pydantic v2 devuelve **422 `{"type":"missing","loc":["body","category"]}`** (reproducido con el payload EXACTO del panel antes del fix). Efecto real: **el botón "Classify" del inbox SIEMPRE fallaba con 422**, ningún prompt se podía auto-clasificar desde la UI. El store (`prompt_store.classify_prompt`) solo persiste la categoría recibida — **no hay auto-clasificador IA**, así que el default correcto es un bucket, no lógica. Los 3 tests de classify **enmascaraban** el drift: `test_classify_ok/_not_found/_wrong_status` mandan `{"category": ...}` (la clave del backend), nunca `{}`. Mismo patrón exacto que C56/C57/C58. Decisión idéntica: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `category: str = "note"` (mismo default que `PromptCreate.category`, línea 23; bucket por defecto del ecosistema); los callers que ya envían `category` no cambian. **+1 test `test_classify_accepts_panel_empty_body` + constante `PANEL_CLASSIFY_EMPTY_BODY={}`** que envía body vacío, asserta 200 y que el store recibe `category="note"`. Verify verde 1486 pass (+1) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de C58 (1485 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C58 inició el eje de
+escritura/POST, cazó su primer drift (`promoteToList` slug/list_slug) y dejó una lista priorizada de payloads por auditar, marcando
+`classifyPrompt` como **"candidato caliente, revisar primero"** por sospecha de 422. Se confirma. Trabajo sobre código propio de
+Micelia (`app/api/v1/prompts.py` + su test); sin tocar infra, `.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (fuente de verdad = payload JSON que el panel serializa vs el `BaseModel` que valida el endpoint + su uso real en la UI):**
+- **`classifyPrompt` — DRIFT REAL (422), reproducido:** panel envía `{}` (`InboxPanel.tsx:135` → `mutate({id, data:{}})`), backend
+  `PromptClassify.category: str` sin default → **422 missing**. Verificado con repro directo contra el ASGI app antes del fix.
+- **Semántica del botón:** "Classify" con icono `Tag` y body vacío = **auto-clasificar** (captured→classified). El store no clasifica
+  con IA (solo persiste `category`); el default correcto es un bucket. `PromptCreate.category` ya usa `"note"` como default del
+  ecosistema → se replica para consistencia.
+- **Tests que enmascaraban el drift:** `test_classify_ok/_not_found/_wrong_status` (`test_api_prompts_codex.py:272-304`) mandan
+  `{"category": ...}` (clave del backend), nunca el `{}` del panel — por eso el drift vivía sin cazar (idéntico a C56/C57/C58).
+
+**Hecho (1 commit atómico `fix(prompts)` `6fabae6`):**
+- **Fix producción (`prompts.py`):** `PromptClassify.category` pasa de `str` (obligatorio) a `str = "note"` (default = mismo bucket
+  que `PromptCreate.category`, con comentario que apunta a `InboxPanel.tsx`). **Additivo**: los callers que envían `category` no
+  cambian; el `{}` del panel ahora da 200 con `category="note"`. 0 regresión.
+- **Regresión (`test_api_prompts_codex.py`):** constante módulo-nivel **`PANEL_CLASSIFY_EMPTY_BODY = {}`** (documenta el payload del
+  panel) + `test_classify_accepts_panel_empty_body`: POST `{}` a un prompt `captured`, asserta **200** + `{"success":True,
+  "status":"classified"}` + `store.classify_prompt` recibió `category="note"` en kwargs. **Mutación:** quitar el default vuelve a
+  422 → el test falla nombrando el body del panel. Espejo de los guards `PANEL_*` de C56/C57/C58.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_CLASSIFY_EMPTY_BODY` módulo-nivel evita N806), typecheck ✓
+(mypy sobre `app/`, 0 errores), test ✓ (**1486 pass** + 2 skip, era 1485 en C58: **+1**), cov ✓ (**93.13%**, ≥ gate **92**).
+Frontend **no tocado**: el fix hace funcional el `{}` que el panel YA envía, sin redeploy del frontend (mismo criterio que
+C56/C57/C58). Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix hace
+funcional el botón "Classify" del inbox** que daba 422 — CUARTO flujo de panel reparado en 4 ciclos consecutivos); (2) actualizar
+`Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con CUARTA evidencia dura, y la más limpia como caso de
+request:** `classify` valida con `BaseModel` pero un campo obligatorio sin default rompe el payload real del panel (body vacío), y los
+API-tests que codifican la clave *backend* (no el `{}` del panel) lo enmascararon. Con C56 (name/status), C57 (steps), C58
+(slug/list_slug) y C59 (category), **cuatro flujos de panel rotos en cuatro ciclos** por drift no blindado. Como en C58, esto confirma
+que DP-10 —si se aprueba— debería cubrir **tests de contrato con el payload EXACTO del panel** (aquí `{}`), no solo la clave canónica
+del backend; y que para requests la vía es revisar defaults/obligatoriedad de cada campo, no solo `response_model` (que blinda la
+respuesta). Siguen abiertas **DP-10** (blindaje de contratos crudos), **DP-9** (paginación con total global), **DP-8** (canela sin
+`version`), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de
+INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 60):** el "candidato caliente" de C58 queda cazado y corregido. Continuar el barrido de escritura/POST sobre los
+payloads aún NO auditados campo-a-campo (mismo método: reproducir con el payload EXACTO del panel, un endpoint por commit): (a)
+`promptsApi.create` `{content,category?,priority?,tags?,scheduled_at?,prefer_paid?}` vs `PromptCreate` — el backend acepta además
+`parent_prompt_id`/`metadata` (superset, el panel los omite → sin 422, pero verificar que ningún campo del panel se pierda); (b)
+`update` `Partial<Prompt>` vs `PromptUpdate` — **candidato**: `Partial<Prompt>` puede incluir campos read-only (`prompt_id`,
+`created_at`, `status` derivados) que `PromptUpdate` no acepta → ¿se descartan silenciosamente como extras y el PATCH "no guarda" algo
+que el usuario editó? revisar qué campos edita el panel realmente; (c) `createList`/`updateList` vs `PromptListCreate`/`Update`; (d)
+`skillsApi.create`/`update`, `mcpApi.generate`. No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 58 (**TERCER DRIFT REAL del eje de contratos — primero de ESCRITURA/POST — y se ARREGLA**: sigo la recomendación (B) de C57 (auditar contratos de escritura que el panel envía vs los `BaseModel` del backend, eje aún no recorrido; NO tomo (A) porque depende de aprobar DP-10, decisión de Jessicache no disponible en ejecución autónoma). Barrido de todos los POST/PATCH del panel (`frontend/src/lib/api.ts`) vs sus modelos backend. **`agentsApi` escritura SIN drift**: `createCrew` `{name,agents,workflow}` == `CrewCreate` (`agents.py:27`); `execute` `{prompt_id,workflow?}` ⊂ `ExecuteRequest` (superset con `crew_id?`). `promoteToSkill` `{name,trigger_pattern}` == `PromptPromoteToSkill`. **PERO `promoteToList` — DRIFT REAL con 422**: el panel (`api.ts:351`, usado por `usePrompts.ts:204`) hace POST `/prompts/{id}/promote/list` con body **`{ slug }`**, pero `PromptPromoteToList` (`prompts.py:67`) **requería `list_slug`** y el handler lee `data.list_slug` (`prompts.py:337`). Efecto en el panel real: el botón **"promover a lista" SIEMPRE daba 422** (`list_slug` ausente + `slug` ignorado como extra por Pydantic). El test backend **enmascaraba** el drift: `test_promote_to_list_ok` (`test_api_prompts_codex.py:360`) envía `{"list_slug":"ideas"}` (la clave del backend), no la del panel. Mismo patrón que C56 (mcp name/status) y C57 (agents steps), ahora en el eje de escritura. Decisión idéntica: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `validation_alias=AliasChoices("list_slug","slug")` acepta ambas claves; atributo Python `list_slug`, handler y `test_promote_to_list_ok` intactos. **+1 test `test_promote_to_list_accepts_panel_slug_key` + constante `PANEL_PROMOTE_TO_LIST_KEY="slug"`** que envía la clave del panel, asserta 200 y que el slug llega intacto al store. Verify verde 1485 pass (+1) · cov 93.13% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de C57 (1484 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C57 dejó
