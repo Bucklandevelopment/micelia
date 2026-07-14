@@ -16,6 +16,67 @@
 
 ---
 
+## 2026-07-14 — Ciclo 57 (**SEGUNDO DRIFT REAL del eje de contratos, mismo patrón que C56 — y se ARREGLA**: sigo la recomendación (A) de C56 y aplico la metodología de contrato a `agentsApi` → `interface AgentCrew`/`AgentRun` (`frontend/src/lib/api.ts:485,493`), con "ojo especial a `status` y campos anidados" como pedía C56. **`AgentCrew` SIN drift** (superset): `create_crew`/`list_crews` (`app/services/agents/crew_manager.py:86`) emiten los 5 campos del panel `crew_id,name,agents,workflow,created_at` **+2 extras inertes** `run_count,last_run_at`. **`AgentRun` detalle SIN drift** (`GET /agents/runs/{id}` → `get_run` devuelve el `run_record` crudo del engine, `workflow_engine.py:273`, superset con `final_output`/`total_*` inertes; los `steps` anidados son superset de `{agent,status,output?,duration_ms?}`). **PERO `AgentRun` en la LISTA — DRIFT REAL con crash**: `GET /agents/runs` (`list_runs`, `agents.py:175`) **re-proyectaba** cada run a `step_count:int` **OMITIENDO `steps[]`**. El panel de agents (`frontend/src/app/agents/page.tsx`) **NO llama a `getRun`** — lee `run.steps` **directamente sobre los items de `agentsApi.runs()`** en DOS sitios: (1) `WorkflowsSection.getActiveStepIndex` (línea 75) hace `run.steps.findIndex(s => s.status==='running')` sobre `activeRuns` (runs con status `running`) → **TypeError `findIndex` of undefined** en cuanto hay un run activo; (2) `RunHistorySection` al expandir un run (líneas 445-447) hace `run.steps.length`/`.map` → **TypeError `length` of undefined** al expandir. Decisión idéntica a C56: código propio de Micelia (`app/api/v1/`), `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `list_runs` pasa `steps` a través (`r.get("steps", [])`, igual que `get_run`) manteniendo `step_count` como extra inerte. **+1 test regresión `test_list_runs_covers_panel_agentrun_contract` + constante `PANEL_AGENTRUN_FIELDS`** (7 campos de `interface AgentRun`) y **actualizado** `test_list_runs_happy_projection` (que codificaba el drift: asertaba `steps` ausente). Verify verde 1484 pass (+1) · cov 93.13% · gate 92 sin cambio · `agents.py`+`workflow_engine.py` 100% cov)
+
+**Contexto:** `make verify` VERDE al cierre de C56 (1483 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C56 recomendó (A)
+auditar `agentsApi → interface AgentCrew/AgentRun`, con foco en `status` y campos anidados (justo donde apareció el drift MCP).
+Trabajo sobre código propio de Micelia (`app/api/v1/agents.py` + su test); sin tocar infra, `.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (fuente de verdad = serializadores backend vs `interface AgentCrew`/`AgentRun` del panel + su uso en `agents/page.tsx`):**
+- **`AgentCrew` (5 campos) — SIN drift (superset):** `crew_manager.create_crew` (`crew_manager.py:86`) construye el dict con
+  `crew_id,name,agents,workflow,created_at` **+2 extras inertes** (`run_count,last_run_at`); `list_crews` los devuelve tal cual.
+  El panel (`agentsApi.crews()`) lee los 5 → match. `createCrew` se tipa `{crew_id}` y solo lee eso → ok.
+- **`AgentRun` detalle (`GET /runs/{id}`) — SIN drift (superset):** `get_run` (`agents.py:196`) devuelve el `run_record` crudo del engine
+  (`workflow_engine.py:273`): `run_id,prompt_id,workflow,status,final_output,steps,total_duration_ms,total_cost_usd,started_at,completed_at`
+  → superset de los 7 de `interface AgentRun` (`final_output`/`total_*` inertes). Los `step_record` anidados (`workflow_engine.py:166`)
+  tienen `agent,status,output,duration_ms` (+7 más) → superset de `{agent,status,output?,duration_ms?}`. **NOTA:** el panel **no usa
+  `getRun`** en ningún sitio (grep limpio), así que el detalle no se ejercita hoy en UI — pero el contrato casa.
+- **`AgentRun` LISTA (`GET /runs`) — DRIFT REAL:** `list_runs` (`agents.py:175`) **no** pasa el run crudo: lo re-proyecta a
+  `run_id,prompt_id,workflow,status,total_duration_ms,total_cost_usd,step_count,started_at,completed_at` → **falta `steps[]`**
+  (emitía `step_count:int` en su lugar). El panel tipa `agentsApi.runs(): {runs: AgentRun[]}` y **lee `run.steps` sobre los items de
+  la lista** (sin fetch de detalle): línea 75 `run.steps.findIndex(...)` y líneas 445-447 `run.steps.length`/`.map`. `run.steps`
+  = `undefined` → **TypeError en ambos** (al haber un run activo y al expandir historial). Crash idéntico en naturaleza al de C56.
+- **Test que codificaba el drift:** `test_list_runs_happy_projection` asertaba el dict exacto **sin `steps`** con `step_count:2` —
+  fijaba la proyección incorrecta desde la óptica del panel. Había que actualizarlo, no solo añadir guard.
+
+**Hecho (1 commit atómico `fix(agents)` `30bbdaa`):**
+- **Fix producción (`agents.py`):** `list_runs` añade `"steps": r.get("steps", [])` a la proyección (mismo dato crudo que devuelve
+  `get_run`, así lista y detalle son consistentes) y **mantiene `step_count`** como extra inerte (compat con cualquier consumidor
+  ligero). Additivo: 0 regresión en los demás campos.
+- **Test (`test_api_agents_codex.py`):** (1) **actualizado** `test_list_runs_happy_projection` para esperar `steps` presente (antes
+  codificaba el drift); (2) **+1** `test_list_runs_covers_panel_agentrun_contract` + constante módulo-nivel **`PANEL_AGENTRUN_FIELDS`**
+  (frozenset con los 7 campos de `interface AgentRun`): asserta `PANEL_AGENTRUN_FIELDS - run.keys()` vacío **y** `isinstance(steps,list)`
+  → si la proyección vuelve a dropear `steps`, el test falla nombrándolo. **Espejo** del guard `PANEL_MCPSERVER_FIELDS` (C56).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_AGENTRUN_FIELDS` módulo-nivel evita N806), typecheck ✓
+(mypy sobre `app/`, 0 errores), test ✓ (**1484 pass** + 2 skip, era 1483 en C56: **+1**), cov ✓ (**93.13%**, ≥ gate **92**;
+`app/api/v1/agents.py` y `workflow_engine.py` a **100%**). Frontend no tocado (el fix es backend; el panel ya esperaba el contrato
+correcto — mismo caso que C56). Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix hace
+funcional el panel de agents/runs** que crasheaba al haber runs activos o al expandir historial — refuerza el valor de ese QA, como el
+fix MCP de C56); (2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con SEGUNDA evidencia dura:** este drift (`steps` ausente en
+la lista de runs) es el **segundo bug real de UX** en dos ciclos que un `response_model` habría cazado — `list_runs` devuelve un dict
+manual sin schema, igual que mcp/prompts/skills. Con C56 (name/status) + C57 (steps), la ausencia de `response_model` ya ha causado
+**dos crashes de panel reales**, no deuda teórica. Recomiendo **elevar DP-10 a prioridad alta**. Siguen abiertas **DP-9** (paginación
+con total global), **DP-8** (canela sin `version`), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 58):** el eje `agentsApi` queda auditado y **corregido**; `AgentCrew` y ambos usos de `AgentRun` (lista+detalle)
+blindados. La superficie de `interface`s del panel en `lib/api.ts` (prompts, skills, mcp, agents) queda **agotada** — todos auditados
+C52–C57. Dos caminos: **(A)** con DOS evidencias duras (C56+C57), si Jessicache aprueba **DP-10**, empezar a añadir `response_model` a
+los GET que devuelven dicts crudos (candidatos por impacto demostrado: `mcp`, `agents/runs`, luego `prompts`/`skills`; 1 endpoint por
+commit, blinda en runtime+OpenAPI lo que hoy solo cubren tests y habría evitado los dos crashes). **(B)** auditar contratos de
+**escritura/POST** que el panel envía (p.ej. payloads de `createCrew`/`execute`/`generate`) vs los `BaseModel` del backend, un eje aún
+no recorrido. Recomiendo (A): DP-10 ya tiene evidencia suficiente y es la causa raíz común de C56+C57. No tocar infra, `.env` ni
+`uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 56 (**PRIMER DRIFT REAL del eje de contratos** — y se ARREGLA, no se documenta: audito `mcpApi` / `GET /api/v1/mcp/servers` → `interface MCPServer` (`frontend/src/lib/api.ts:457`) como pidió Ciclo 55. **A diferencia de C52–C55 (todos "sin drift"), aquí SÍ hay drift real con impacto UX**: el panel `MCPServersTab` (`frontend/src/app/skills/page.tsx`) renderiza `server.name` (título de la tarjeta, línea 454) y `server.status` (badge de estado línea 467 + **decide qué botón mostrar, Start vs Stop**, línea 509), pero `list_servers`/`get_server` (`app/services/mcp_generator.py`) **NUNCA emitían `name`** y emitían **`running: bool`** en vez de **`status: "stopped"|"running"`**. Efecto en el panel real: título de cada servidor **en blanco** (`server.name` = `undefined`) y `server.status === "stopped"` siempre `false` → **todo servidor parado mostraba el botón "Stop"** (nunca "Start"), imposibilitando arrancarlo desde la UI. Además el fallback de metadata ilegible **omitía `tools`** → el panel **crasheaba** en `server.tools.length` (línea 484). Decisión: es código propio de Micelia (`app/services/`, no repo hermano) y un `fix:` que el panel de Micelia necesita → lo arreglo (prioridad #4 coherencia inter-proyecto). Fix **additivo y compat con metadata legada**: deriva `name`(=server_id) y `status`(de running) en tiempo de lectura, persiste `name` en `metadata.json` al generar, mantiene `running` como extra inerte, completa el fallback. **+1 constante `PANEL_MCPSERVER_FIELDS` + 3 tests** que blindan los 7 campos y la derivación de status, probados por mutación · verify verde 1483 pass (+3) · cov 93.13% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 55 (1480 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 55
