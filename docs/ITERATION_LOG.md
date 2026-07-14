@@ -16,6 +16,67 @@
 
 ---
 
+## 2026-07-14 — Ciclo 61 (**SEXTO DRIFT REAL del eje de escritura — el "candidato caliente" que C60 predijo (`mcpApi.generate`), y se ARREGLA**: sigo la recomendación (a) de C60. **Confirmado como DRIFT REAL con 422 reproducido, patrón idéntico a C60 (skills)**: el form `MCPGenerateForm` (`skills/page.tsx:548`) **no marca el `<input>` de descripción como `required`** (el de Server Name sí, línea 611) y `handleSubmit` (línea 585) solo exige `!form.name || validTools.length===0`, así que puede enviar **`description: ""`**; pero `GenerateRequest.description` (`mcp.py:37`) tenía **`Field(..., min_length=1, max_length=500)`** → **422 `string_too_short` `loc:["description"]`** (reproducido con el payload EXACTO del form contra el `BaseModel`). Efecto real: **el botón "Generate MCP Server" fallaba** si el usuario dejaba la descripción en blanco. Los tools anidados no driftean (`ToolDefinition.description=""` default, `parameters:[]` default → el `{name,description:""}` que envía el form es válido). Los tests enmascaraban el drift igual que C60: `test_generate_ok` usa `GENERATE_PAYLOAD` con `description:"Weather tools"` (no vacía) y `test_generate_validation_422` prueba name/tools/language malos, **nunca `description:""`**. Decisión idéntica a C56–C60: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4). Fix **additivo**: `description: str = Field(default="", max_length=500)` (opcional, `""` permitido, `max_length` intacto), consistente con `SkillCreate.description` (C60). **+1 test `test_generate_accepts_panel_empty_description` + constante `PANEL_GENERATE_NO_DESCRIPTION`** (payload del form con `""`) que asserta 200 y que `description=""` llega intacta al generador. Verify verde 1488 pass (+1) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de C60 (1487 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C60 marcó `mcpApi.generate`
+como **"candidato caliente"** ("el form solo guarda `name` y `validTools.length>0`, no `description` → si el backend exige `description`
+no vacía, mismo 422 que skills"). Se confirma. Trabajo sobre código propio de Micelia (`app/api/v1/mcp.py` + su test); sin tocar infra,
+`.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (método C59/C60 = reproducir con el payload EXACTO que el form serializa vs el `BaseModel` que valida):**
+- **`mcpApi.generate` — DRIFT REAL (422), reproducido:** `uv run python` contra `GenerateRequest(**{name,description:"",tools:[{name,
+  description:""}],language:"python"})` → `[('string_too_short', ('description',))]` antes del fix. El form (`MCPGenerateForm`) es el
+  único caller (`skills/page.tsx:560`, vía `generateMutation.mutate`); grep de `mcpApi.generate` = 1 sitio.
+- **Tools anidados — SIN drift:** el form envía `tools:[{name,description}]`; `ToolDefinition.description` tiene default `""` y
+  `parameters` default `[]`, así que un tool con `description:""` y sin `parameters` valida. El único guard del form es `t.name.trim()`
+  (tools sin nombre se filtran) → `name` nunca llega vacío. Sin 422 por tools.
+- **`mcpApi.fromPrompt` — DRIFT LATENTE, NO ejercido (no fabrico fix):** `api.ts:479` tipa `fromPrompt(promptId)` y envía body
+  **`{prompt_id: promptId}`**, pero `FromPromptRequest` (`mcp.py:42`) exige **`prompt: str` (min_length=10)** y lee `data.prompt` →
+  daría 422 (`prompt` missing, `prompt_id` descartado como extra). **PERO `fromPrompt` no se llama en ningún sitio del panel** (grep
+  limpio en `app/`+`hooks/`; solo `servers/start/stop/delete/generate` se cablean) ⇒ sin caller, sin payload real, sin bug vivo. Mismo
+  criterio honesto que C60 con `promptsApi.update`: no invento un fix para un endpoint no ejercido. Queda como candidato de blindaje
+  bajo DP-10 (si algún día se cablea el botón "MCP from prompt", habrá que unificar `prompt_id`↔`prompt`).
+
+**Hecho (1 commit atómico `fix(mcp)` `6686e2b`):**
+- **Fix producción (`mcp.py`):** `GenerateRequest.description` pasa de `Field(..., min_length=1, max_length=500)` a
+  `Field(default="", max_length=500)` (opcional, `""` permitido, comentario que apunta al form del panel). **Additivo**: generar con
+  descripción no cambia; el `""` del form ahora da 200. Consistente con `SkillCreate.description` (C60). 0 regresión
+  (`test_generate_validation_422` sigue 422 por name/tools/language).
+- **Regresión (`test_api_mcp_codex.py`):** constante módulo-nivel **`PANEL_GENERATE_NO_DESCRIPTION`** (payload del form con
+  `description:""`) + `test_generate_accepts_panel_empty_description`: POST con `""`, asserta **200** + que `gen.generate` recibió
+  `description=""` en kwargs (no coerción ni 422). **Mutación:** restaurar `min_length=1` vuelve a 422 → el test falla nombrando el
+  payload del panel. Espejo de los guards `PANEL_*` de C56–C60.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_GENERATE_NO_DESCRIPTION` módulo-nivel evita N806), typecheck
+✓ (mypy sobre `app/`, 0 errores), test ✓ (**1488 pass** + 2 skip, era 1487 en C60: **+1**), cov ✓ (**93.13%**, ≥ gate **92**). *Nota:*
+Pyright marca 1 aviso preexistente ("`i` no usado" en `mcp.py:270`, dentro del `enumerate` de `_parse_prompt_to_spec`); NO lo introduje
+(mi cambio solo tocó el `Field` de la línea 37), ruff no lo marca y queda fuera del scope. Frontend **no tocado**: el fix hace válido el
+`""` que el form YA puede enviar, sin redeploy. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix hace
+funcional "generar MCP server sin descripción"** que daba 422 — SEXTO flujo de panel reparado; 6 ciclos consecutivos); (2) actualizar
+`Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con SEXTA evidencia dura, exactamente el mismo sub-patrón
+que C60** (form-guard-vs-schema: la UI no exige un campo que el schema marcaba obligatorio → 422 con `description:""`). Con C56–C61,
+**seis flujos de panel rotos en seis ciclos**; **dos de ellos** (C60 skills, C61 mcp) son el *mismo bug* (`description` obligatoria en el
+schema pero opcional en el form). Esto sugiere para DP-10 un blindaje sistemático: **un test de contrato por cada form del panel con
+todos los campos opcionales del form vacíos/omitidos**, no solo el happy payload. Un `response_model` no lo caza (es request). Siguen
+abiertas **DP-10** (blindaje de contratos crudos), **DP-9** (paginación con total global), **DP-8** (canela sin `version`), **DP-7**
+(namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel
+(**DP-1..DP-4**).
+
+**Mañana (Ciclo 62):** cazados los dos `description`-obligatoria (skills C60, mcp C61). El barrido de escritura/POST con campos
+opcionales vacíos sigue vivo sobre los payloads aún NO reproducidos (mismo método, un endpoint por commit): (a) **`promptsApi.create`**
+`{content,category?,priority?,tags?,scheduled_at?,prefer_paid?}` vs `PromptCreate` — verificar que ningún campo del form (`priority`,
+`scheduled_at`, `prefer_paid`) se pierda o choque, y que `content` vacío/omitido se comporte como el form permite; (b) **`createList`**
+`{name,description?,category?,content_md?}` vs `PromptListCreate` con `name` vacío → ¿`min_length` en `name` que el form no exige?; (c)
+**`updateList`** ya auditado C59 (ok). Nota: `mcpApi.fromPrompt` es candidato de contrato (`prompt_id`↔`prompt`) pero **inerte** hasta que
+se cablee su botón — no tocar sin caller. No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 60 (**QUINTO DRIFT REAL del eje de escritura — auditar `promptsApi.update` (candidato de C59) resulta INERTE, pero el barrido a los payloads REALMENTE ejercidos caza otro 422**: sigo la recomendación de C59. **`promptsApi.update` vs `PromptUpdate`: SIN drift ejercido** — `update(id, data: Partial<Prompt>)` (`api.ts:310`) tiparía ~26 campos (muchos read-only) contra los 7 de `PromptUpdate`, pero **`useUpdatePrompt().mutate` NO se llama en ningún sitio** del panel (grep limpio: `StagingPanel.tsx:66` importa el hook y solo lee `.isPending` para el flag `isActing`; nunca dispara la mutación). Sin caller ⇒ sin payload real ⇒ sin bug vivo (Pydantic ignora extras por defecto: aunque se llamara con read-only fields, se descartarían silenciosamente, no 422). No fabrico un fix para un endpoint no ejercido. **Pivote al resto de payloads de escritura que el panel SÍ dispara** (`promptsApi.create`, `createNote`, `updateList`, `skillsApi.create/update`, `mcpApi.generate`) → **`skillsApi.create` — DRIFT REAL con 422 reproducido**: el form de crear skill (`skills/page.tsx`) **no exige `description`** (el `<input>` no es `required` y `handleSubmit` línea 290 solo guarda `name/trigger_pattern/prompt_template`), así que puede enviar **`description: ""`**; pero `SkillCreate.description` (`skills.py:24`) tenía **`Field(..., min_length=1)`** → **422 `string_too_short`** (reproducido con el payload EXACTO del panel). Efecto real: **crear una skill sin descripción fallaba** desde la UI. Asimetría delatora: `SkillUpdate.description` YA es `Optional` (mismo form comparte create/edit vía `typeof form`), solo create lo forzaba. Decisión idéntica a C56–C59: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4). Fix **additivo**: `description: str = Field(default="", max_length=2000)` (opcional, `""` permitido, `max_length` intacto), consistente con `SkillUpdate`. **+1 test `test_create_skill_accepts_panel_empty_description` + constante `PANEL_CREATE_SKILL_NO_DESCRIPTION`** que envía `""`, asserta 200 y que `description=""` llega intacta al manager. Verify verde 1487 pass (+1) · cov 93.13% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de C59 (1486 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C59 marcó
