@@ -16,6 +16,71 @@
 
 ---
 
+## 2026-07-14 — Ciclo 60 (**QUINTO DRIFT REAL del eje de escritura — auditar `promptsApi.update` (candidato de C59) resulta INERTE, pero el barrido a los payloads REALMENTE ejercidos caza otro 422**: sigo la recomendación de C59. **`promptsApi.update` vs `PromptUpdate`: SIN drift ejercido** — `update(id, data: Partial<Prompt>)` (`api.ts:310`) tiparía ~26 campos (muchos read-only) contra los 7 de `PromptUpdate`, pero **`useUpdatePrompt().mutate` NO se llama en ningún sitio** del panel (grep limpio: `StagingPanel.tsx:66` importa el hook y solo lee `.isPending` para el flag `isActing`; nunca dispara la mutación). Sin caller ⇒ sin payload real ⇒ sin bug vivo (Pydantic ignora extras por defecto: aunque se llamara con read-only fields, se descartarían silenciosamente, no 422). No fabrico un fix para un endpoint no ejercido. **Pivote al resto de payloads de escritura que el panel SÍ dispara** (`promptsApi.create`, `createNote`, `updateList`, `skillsApi.create/update`, `mcpApi.generate`) → **`skillsApi.create` — DRIFT REAL con 422 reproducido**: el form de crear skill (`skills/page.tsx`) **no exige `description`** (el `<input>` no es `required` y `handleSubmit` línea 290 solo guarda `name/trigger_pattern/prompt_template`), así que puede enviar **`description: ""`**; pero `SkillCreate.description` (`skills.py:24`) tenía **`Field(..., min_length=1)`** → **422 `string_too_short`** (reproducido con el payload EXACTO del panel). Efecto real: **crear una skill sin descripción fallaba** desde la UI. Asimetría delatora: `SkillUpdate.description` YA es `Optional` (mismo form comparte create/edit vía `typeof form`), solo create lo forzaba. Decisión idéntica a C56–C59: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4). Fix **additivo**: `description: str = Field(default="", max_length=2000)` (opcional, `""` permitido, `max_length` intacto), consistente con `SkillUpdate`. **+1 test `test_create_skill_accepts_panel_empty_description` + constante `PANEL_CREATE_SKILL_NO_DESCRIPTION`** que envía `""`, asserta 200 y que `description=""` llega intacta al manager. Verify verde 1487 pass (+1) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de C59 (1486 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C59 marcó
+`promptsApi.update` como candidato caliente ("`Partial<Prompt>` puede incluir campos read-only que `PromptUpdate` descarta →
+¿PATCH que no guarda?"). Trabajo sobre código propio de Micelia (`app/api/v1/skills.py` + su test); sin tocar infra, `.env`,
+`uv.lock` ni repos hermanos.
+
+**Auditoría realizada (método C59 = reproducir con el payload EXACTO que el panel envía, no solo comparar tipos):**
+- **`promptsApi.update` — SIN drift ejercido (endpoint inerte hoy):** `Partial<Prompt>` es superset de `PromptUpdate` (7 campos:
+  `content,category,priority,status,tags,scheduled_at,prefer_paid`), pero **el panel nunca llama a la mutación**: `useUpdatePrompt`
+  (`usePrompts.ts:128`) solo se usa en `StagingPanel.tsx:66` para leer `.isPending`; `grep -rn "update.mutate" frontend/src` = vacío.
+  Sin caller no hay payload que reproducir. Además Pydantic v2 (`extra="ignore"` por defecto) descartaría los read-only silenciosamente,
+  no daría 422. **Conclusión honesta: no hay bug vivo aquí — no invento un fix.** (Nota latente: si algún día se cablea un form de
+  edición que mande `Partial<Prompt>` con campos read-only, se perderán en silencio; queda como candidato de blindaje bajo DP-10.)
+- **Barrido de los payloads de escritura EJERCIDOS** (los que sí disparan `.mutate`/`.mutateAsync`): `createNote {text,tags}` ==
+  `QuickNoteCreate` (ok); `updateList {content_md}` ⊂ `PromptListUpdate` (ok); `promptsApi.create` ⊂ `PromptCreate` (superset backend,
+  ok); `mcpApi.generate` (pendiente, ver Mañana). **`skillsApi.create` — DRIFT REAL.**
+- **`skillsApi.create` — DRIFT REAL (422), reproducido:** form envía `{name,description:"",trigger_pattern,prompt_template}` cuando el
+  usuario deja description en blanco (UI no lo impide); `SkillCreate.description = Field(..., min_length=1)` → **422 `string_too_short`
+  `loc:["body","description"]`**. Verificado con repro directo contra el ASGI app antes del fix.
+- **Test que enmascaraba el drift:** `test_create_skill_ok` (`test_api_skills_codex.py:83`) usa `CREATE_PAYLOAD` con
+  `description:"Say hi"` (no vacía) y `test_create_skill_validation_422` manda `{"name":"solo"}` (falla por otros campos) — ninguno
+  ejercía `description:""`. Igual que C56–C59.
+
+**Hecho (1 commit atómico `fix(skills)` `f3e8097`):**
+- **Fix producción (`skills.py`):** `SkillCreate.description` pasa de `Field(..., min_length=1, max_length=2000)` a
+  `Field(default="", max_length=2000)` (opcional, `""` permitido, comentario que apunta al form del panel). **Additivo**: crear con
+  descripción no cambia; el `""` del panel ahora da 200. Consistente con `SkillUpdate.description` (ya `Optional`). 0 regresión
+  (`test_create_skill_validation_422` sigue 422 porque faltan trigger/template).
+- **Regresión (`test_api_skills_codex.py`):** constante módulo-nivel **`PANEL_CREATE_SKILL_NO_DESCRIPTION`** (payload del form con
+  `description:""`) + `test_create_skill_accepts_panel_empty_description`: POST con `""`, asserta **200** + que el manager recibe
+  `description=""` en kwargs (no coerción ni 422). **Mutación:** restaurar `min_length=1` vuelve a 422 → el test falla nombrando el
+  payload del panel. Espejo de los guards `PANEL_*` de C56–C59.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_CREATE_SKILL_NO_DESCRIPTION` módulo-nivel evita N806),
+typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓ (**1487 pass** + 2 skip, era 1486 en C59: **+1**), cov ✓ (**93.13%**, ≥ gate
+**92**). *Nota:* Pyright marcó 2 avisos preexistentes de "store no usado" en `test_api_skills_codex.py:370,380` (stubs de monkeypatch
+`lambda store: fake` / `def boom(store)` cuya firma imita `get_skills_manager(store)`); NO los introduje (mi inserción de ~22 líneas
+solo desplazó su numeración; último commit del fichero antes de hoy = `3886640`), ruff no los marca y no entran en el scope del ciclo.
+Frontend **no tocado**: el fix hace válido el `""` que el form YA puede enviar, sin redeploy. Sin procesos residuales (tests
+in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix hace
+funcional "crear skill sin descripción"** que daba 422 — QUINTO flujo de panel reparado; 5 ciclos consecutivos); (2) actualizar
+`Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con QUINTA evidencia dura, y añade un matiz nuevo:** el
+drift de `skillsApi.create` no es solo backend-vs-backend, sino **form-guard-vs-schema** — la UI y el schema discrepan en qué campos
+son obligatorios (el form guarda 3 campos, el schema exigía 4). Un `response_model` no lo cazaría (es request); lo cazaría un **test de
+contrato con el payload mínimo real del form** (justo lo que añaden los guards `PANEL_*`). Con C56–C60, **cinco flujos de panel rotos en
+cinco ciclos**. Sugiero para DP-10: el blindaje debe incluir, por cada form del panel, un test con **el payload que el form permite
+enviar con los campos opcionales vacíos/omitidos** (no solo el "happy payload" completo). Siguen abiertas **DP-10** (blindaje de
+contratos crudos), **DP-9** (paginación con total global), **DP-8** (canela sin `version`), **DP-7** (namespace `idm/vital/micelia`),
+**DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 61):** el barrido de escritura/POST sigue vivo. Auditar los payloads aún NO reproducidos con campos opcionales vacíos
+(mismo método): (a) **`mcpApi.generate` — candidato caliente**: el form (`skills/page.tsx:585`) solo guarda `name` y
+`validTools.length>0`, **no `description`** → si el backend del generador MCP exige `description` no vacía, mismo 422 que skills
+(revisar el `BaseModel`/params de `mcpApi.generate` en `app/api/v1/mcp.py` o servicio); (b) `promptsApi.create` — verificar que ningún
+campo del form (`priority`, `scheduled_at`, `prefer_paid`) se pierda o choque; (c) `createList` `{name,description?,category?,content_md?}`
+vs `PromptListCreate` con `name` vacío. Un endpoint por commit, test con el payload mínimo del form. No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 59 (**CUARTO DRIFT REAL del eje de contratos — el "candidato caliente" que C58 predijo, y se ARREGLA**: sigo la recomendación de C58 (continuar el barrido de escritura/POST campo-a-campo, "revisar `classifyPrompt` primero: `PromptClassify` exige `category` sin default → ¿422 si el panel lo omite?"). **Confirmado como DRIFT REAL con 422 reproducido**: el panel tipa `classifyPrompt(id, data: { category?; tags? })` (`api.ts:338`, ambos opcionales) y el botón **"Classify" del inbox** (`InboxPanel.tsx:135`) llama `classify.mutate({ id, data: {} })` con **body vacío `{}`** (intención: auto-clasificar, mover `captured→classified` sin que el humano elija categoría). Pero `PromptClassify.category` (`prompts.py:61`) era **`str` sin default** → Pydantic v2 devuelve **422 `{"type":"missing","loc":["body","category"]}`** (reproducido con el payload EXACTO del panel antes del fix). Efecto real: **el botón "Classify" del inbox SIEMPRE fallaba con 422**, ningún prompt se podía auto-clasificar desde la UI. El store (`prompt_store.classify_prompt`) solo persiste la categoría recibida — **no hay auto-clasificador IA**, así que el default correcto es un bucket, no lógica. Los 3 tests de classify **enmascaraban** el drift: `test_classify_ok/_not_found/_wrong_status` mandan `{"category": ...}` (la clave del backend), nunca `{}`. Mismo patrón exacto que C56/C57/C58. Decisión idéntica: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `category: str = "note"` (mismo default que `PromptCreate.category`, línea 23; bucket por defecto del ecosistema); los callers que ya envían `category` no cambian. **+1 test `test_classify_accepts_panel_empty_body` + constante `PANEL_CLASSIFY_EMPTY_BODY={}`** que envía body vacío, asserta 200 y que el store recibe `category="note"`. Verify verde 1486 pass (+1) · cov 93.13% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de C58 (1485 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C58 inició el eje de
