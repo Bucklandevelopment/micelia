@@ -16,6 +16,73 @@
 
 ---
 
+## 2026-07-14 — Ciclo 50 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `POST /api/v1/events` (`create_event` → `EventCreate`)** — (a) ¿TODOS los campos que `EventCreate` acepta se propagan a `append_event`/persistencia, o alguno se pierde en el mapeo request→store como pasó con `correlation_id` (Ciclo 43)?; (b) ¿`EventCreateResponse` `{event_id, status, timestamp}` casa con lo que el SDK/`eventsApi.create()` espera? **CONCLUSIÓN: SIN drift** — (a) los **9 campos** de `EventCreate` (category, subcategory, source, action, event_type, payload, metadata, tags, correlation_id) se reenvían **todos** a `append_event`, con el remapeo de nombre correcto `metadata`→`event_metadata` (`events.py:230-240`). `append_event` acepta **más** parámetros (`causation_id`, `user_id`, `compute_*`) que `EventCreate` NO expone, pero eso **no es un drop silencioso** como fue `correlation_id`: el SDK in-tree (`IdmEvent`/`publish_event`, docstring "Aligns with the EventCreate schema") manda **exactamente esos 9 campos y ninguno más** (grep confirma que `app/sdk/` no menciona `causation_id`/`compute_*`/`occurred_at`) → REST y SDK son simétricos; los extras de `append_event` los rellenan **callers internos Python** (`security.py`, `gateway.py`, `prompt_executor.py`) que llaman la API Python directa, no por REST → ausencia **por diseño** (contrato REST mínimo), no pérdida. (b) `create_event` devuelve `{event_id, status:"created", timestamp}` con `response_model=EventCreateResponse` que fija el shape en runtime y OpenAPI; el SDK lee `data.get("event_id")` → match (ya auditado Ciclo 44, cubierto por `test_create_event_response_matches_output_contract`). **Gap adyacente encontrado (cobertura, no correctitud):** `test_create_event_happy_forwards_all_fields` **enviaba** `payload`/`action`/`event_type` en el body pero **NO asertaba su reenvío** —solo 6 de los 9 campos tenían aserción—; `payload` es el **dato central** del evento → una regresión que dropee `payload=event.payload` o rompa el mapeo de `action`/`event_type` corrompería cada evento sin cazarlo ningún test. Deliverable Micelia-only: **+1 test** que asserta la fidelidad de los 3 campos restantes (payload intacto incl. estructura anidada) · verify verde 1477 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 49 (1476 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 49
+recomendó auditar el contrato de `POST /events` (propagación de campos + shape de respuesta). Trabajo sobre código propio de
+Micelia (`tests/test_api_events_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = `EventCreate` → `create_event` → `append_event` → columnas + `EventCreateResponse` → SDK):**
+- **(a) Propagación request→store — SIN drift:** `create_event` (`events.py:230`) reenvía los **9 campos** de `EventCreate` a
+  `append_event`: `category, subcategory, source, action, event_type, payload, event_metadata=event.metadata, tags,
+  correlation_id`. El único remapeo de nombre (`metadata`→`event_metadata`) es correcto (cubierto por
+  `test_create_event_happy_forwards_all_fields`). **Ninguno de los 9 se pierde.**
+- **Extras de `append_event` NO expuestos por REST (por diseño, no drop):** `append_event` acepta además `causation_id`,
+  `user_id`, `compute_provider/model/latency_ms/cost_usd` (`store.py:148-164`) que `EventCreate` no declara. A diferencia de
+  `correlation_id` (Ciclo 43, que SÍ lo mandaban biohack/cybertools vía `VitalEvent.to_dict()` y se perdía por `extra='ignore'`),
+  aquí **ningún emisor REST manda esos campos**: el SDK canónico in-tree `IdmEvent`/`publish_event` (docstring "Aligns with the
+  EventCreate schema") declara exactamente los 9 campos y `to_dict()` no emite otros; grep sobre `app/sdk/` no encuentra
+  `causation_id`/`compute_*`/`occurred_at`. Esos parámetros los rellenan **callers internos Python** (`security.py`, `gateway.py`,
+  `prompt_executor.py`) por la API directa. → REST/SDK simétricos, sin pérdida silenciosa.
+- **(b) Shape de respuesta — SIN drift:** `create_event` retorna `{event_id: str(uuid), status: "created", timestamp: now(UTC)}`
+  y el `response_model=EventCreateResponse` (`{event_id: UUID, status: Literal["created"], timestamp: datetime}`) fija el shape en
+  runtime + OpenAPI, descartando claves extra. Los SDK de dominio leen `data.get("event_id")` (biohack/cybertools) o el dict
+  completo con `raise_for_status()` (canela/codking) → match. Ya auditado Ciclo 44; cubierto por
+  `test_create_event_response_matches_output_contract` (asserta `set(keys)=={event_id,status,timestamp}`).
+- **GAP ADYACENTE (cobertura):** `test_create_event_happy_forwards_all_fields` **enviaba** `payload={"hr":60}`, `action`,
+  `event_type` en el body pero **solo asertaba** category/subcategory/source/event_metadata/tags/correlation_id (6 de 9). `payload`
+  —el dato central— y `action`/`event_type` quedaban **sin blindar**: un cambio que dropee `payload=event.payload` o rompa el
+  reenvío de action/event_type pasaría el verify entero.
+
+**Hecho (1 commit atómico `test(events)` `a1676b8`):**
+- **`test_create_event_forwards_payload_action_and_event_type`:** POST con `payload` de estructura anidada
+  (`{"doi":..., "score":..., "nested":{"k":[1,2]}}`) + `action`/`event_type`, y asserta que los tres llegan **intactos** a los
+  kwargs de `append_event` (payload sin renombrar ni perder claves anidadas). Cierra el hueco → los 9 campos de `EventCreate`
+  quedan verificados-reenviados a lo largo de la suite.
+- Cambio **test-only** (no había defecto de producción): la auditoría concluyó "sin drift" en (a) y (b); el deliverable es
+  regresión que fija el contrato de entrada verificado (prioridad #3, cobertura con valor real sobre el dato central del evento).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores; el test nuevo no
+toca `app/`), test ✓ (**1477 pass** + 2 skip, era 1476 en Ciclo 49: **+1** test), cov ✓ (**93.12%**, ≥ gate **92**). Frontend no
+tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4. Nota: la garantía end-to-end real (POST evento → persistido con esos campos → recuperado) no se puede testear con DB
+real en los tests (aiosqlite ausente + columnas UUID Postgres-only, prohibido tocar `uv.lock`); queda cubierta por composición
+(reenvío request→store verificado + `IdmEventModel(...)` con los mismos kwargs).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El gap era de cobertura interna a Micelia → resuelto con test, sin
+decisión cross-project. **Observación adyacente (no bloqueante, para futura consideración):** `EventCreate` no expone
+`causation_id`/`user_id`/`compute_*` que las columnas y `append_event` sí soportan; hoy ningún emisor REST los necesita (los usan
+callers internos), pero si un SDK de dominio quisiera emitir cadenas causales (`causation_id`) o atribución de usuario vía REST,
+harían falta esos campos en `EventCreate` — hoy se perderían por `extra='ignore'` igual que le pasó a `correlation_id` (Ciclo 43).
+No es un bug actual; se anota como candidato a auditar si aparece un emisor. Siguen abiertas **DP-9** (paginación con total global,
+Ciclo 46), **DP-8** (canela sin `version` en health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 51):** contrato de eventos auditado extremo a extremo — request/response/query-filters/read-shapes/stats-semantics/
+timeline-timezone/by-correlation/create-input (Ciclos 43–50), todos "sin drift" + regresión. El eje de **coherencia inter-proyecto
+(#4) del Event Store está prácticamente agotado**; siguiente paso recomendado: **cambiar de eje a prioridad #4 (coherencia) sobre
+OTRO router** o a **#3 (cobertura con valor)** en un módulo distinto. Candidato concreto: auditar el **contrato de `GET
+/api/v1/events/stats` vs `GET /api/v1/events/stats/...`** ya cerrado (Ciclo 47) → mejor pasar al **router de health/registry** o al
+**gateway** (`app/api/v1/gateway.py`): auditar que el shape de la respuesta del reverse-proxy/health que consume el panel
+(`frontend/src/lib/api.ts`) casa con lo que devuelve el backend (mismo método que Ciclos 45–46 aplicó a eventos). Alternativa:
+`cli.py`/`main.py` vía subprocess (cobertura de bajo riesgo). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 49 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `GET /api/v1/events/by-correlation/{id}`** — (a) ¿el tipo de la columna `correlation_id` casa con el `UUID` que llega, o hay coerción str↔UUID en el WHERE como en el filtro `source` de `query_events`?; (b) ¿el shape `{correlation_id, events, count}` casa con lo que `eventsApi.byCorrelation()` del panel espera? **CONCLUSIÓN: SIN drift** — (a) la columna es `PGUUID(as_uuid=True)` (mapea `uuid.UUID` nativo) y el endpoint tipa `correlation_id: UUID` → FastAPI coacciona el path str→`UUID` (test existente `test_by_correlation_invalid_uuid_422` prueba 422 en inválido); el WHERE `IdmEventModel.correlation_id == correlation_id` compara **UUID-vs-UUID**, no str-vs-str como el filtro `source` → NO hay coerción str↔UUID (verificado compilando la SQL: el bind es el **hex canónico** `'12345678...'`, la forma real de UUID). (b) backend devuelve `{correlation_id, events, count}`; `byCorrelation()` (`lib/api.ts:223`) tipa `{ events: IdmEvent[] }` y **ningún componente** consume `byCorrelation` fuera de la definición del cliente (grep) → superset OK, sin hook latente leyendo `correlation_id`/`count` (reconfirma Ciclo 46). **Gap adyacente encontrado (cobertura, no correctitud):** los 2 tests de `get_by_correlation` NO asertaban ni el WHERE ni el ORDER BY → dos garantías del contrato quedaban sin blindar: (1) que el filtro ligue el UUID exacto, (2) que el orden sea `timestamp` **ASCENDENTE** —traza cronológica del flujo—, a diferencia de `query_events` que ordena `.desc()`; un cambio futuro a `.desc()` invertiría en silencio las trazas de workflow. Deliverable Micelia-only: **+1 test compile-SQL** que asserta el bind hex exacto del UUID y `ORDER BY timestamp` sin `DESC` (mismo patrón `literal_binds` de Ciclos 47/48) · verify verde 1476 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 48 (1475 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 48
