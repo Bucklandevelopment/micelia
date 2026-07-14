@@ -545,6 +545,14 @@ function MCPServersTab() {
 
 // ===================== MCP Generate Form =====================
 
+// El backend exige que el nombre del server MCP case el patrón
+// `^[a-z0-9][a-z0-9_-]*$` (GenerateRequest.name en app/api/v1/mcp.py:36),
+// porque el nombre se usa como ruta/módulo en disco. El form solo comprobaba
+// `!form.name`, así que un nombre con mayúsculas/espacios (p.ej. "My Server")
+// pasaba el guard y el backend respondía 422 string_pattern_mismatch al pulsar
+// "Generate MCP Server". Validamos el patrón en cliente para honrar el contrato.
+const MCP_SERVER_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
+
 function MCPGenerateForm({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
 
@@ -582,7 +590,7 @@ function MCPGenerateForm({ onClose }: { onClose: () => void }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const validTools = form.tools.filter((t) => t.name.trim())
-    if (!form.name || validTools.length === 0) return
+    if (!MCP_SERVER_NAME_PATTERN.test(form.name) || validTools.length === 0) return
     generateMutation.mutate({ ...form, tools: validTools })
   }
 
@@ -607,9 +615,14 @@ function MCPGenerateForm({ onClose }: { onClose: () => void }) {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="my-mcp-server"
+              pattern="[a-z0-9][a-z0-9_-]*"
+              title="Solo minúsculas, números, guion y guion bajo; debe empezar por letra o número (p.ej. my-mcp-server)."
               className="w-full px-4 py-2 rounded-lg bg-idm-surface border border-idm-border text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none transition-colors"
               required
             />
+            <p className="mt-1 text-xs text-gray-500">
+              minúsculas, números, <code>-</code> o <code>_</code>; empieza por letra o número
+            </p>
           </div>
           <div>
             <label className="block text-sm text-gray-400 mb-1">Language</label>
