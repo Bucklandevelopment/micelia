@@ -16,6 +16,71 @@
 
 ---
 
+## 2026-07-14 — Ciclo 44 (COHERENCIA INTER-PROYECTO #10: audita el **contrato de RESPUESTA** de `POST /api/v1/events` — qué shape devuelve Micelia (`{event_id, status:"created", timestamp}`) vs qué leen realmente los 5 SDK de dominio de esa respuesta. **Resultado: SIN drift** — biohack/cybertools leen `data.get("event_id")` cuando `status_code in (200,201)` (`vital_sdk/client.py`), canela/codking hacen `resp.raise_for_status()` (aceptan cualquier 2xx) y devuelven el dict entero, auto-mat-ion publica por Redis (fuera del contrato REST). El `event_id` que biohack/cybertools consumen siempre está presente. Hallazgo estructural: **el endpoint devolvía un dict SIN `response_model`** → el shape que los SDK consumen no estaba fijado en runtime ni publicado en el OpenAPI (mismo antipatrón que Ciclos 42–43: contrato conocido que la capa de destino no enforza). Deliverable Micelia-only: **`EventCreateResponse` declarado como `response_model`** del POST, alineado con el mock e2e `EventCreated` · +1 test que fija `{event_id(UUID), status, timestamp}` sin claves extra · verify verde 1462 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 43 (1461 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 43
+recomendó seguir en **coherencia inter-proyecto (#4)** auditando el **contrato de respuesta que los SDK de dominio esperan de
+`POST /api/v1/events`**. Trabajo sobre código propio de Micelia (`app/api/v1/events.py` + su test); sin tocar infra, `.env`,
+`uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = `publish_event` de cada SDK vendorizado):**
+- **Qué devuelve Micelia:** `create_event` (`events.py:180`) retornaba un **dict literal** `{event_id: str(uuid), status:
+  "created", timestamp: iso}` con `@router.post("")` → **HTTP 200** (default, sin `status_code=` explícito) y **sin
+  `response_model`** → FastAPI no validaba/serializaba la salida contra ningún esquema y el OpenAPI no declaraba shape de
+  respuesta para el endpoint.
+- **Qué lee cada SDK de esa respuesta:**
+  - **biohack** (`backend/app/integrations/vital_sdk/client.py:254`) y **cybertools** (`src/scanet/vital_sdk/client.py:236`):
+    `if response.status_code in (200, 201): data = response.json(); return data.get("event_id")` → **`event_id` es el ÚNICO
+    campo consumido**; no leen `status` ni `timestamp`. Aceptan 200 y 201.
+  - **canela** (`app/integrations/vital_sdk/client.py:127`) y **codking** (`integrations/vital_sdk/client.py:127`):
+    `resp.raise_for_status(); return resp.json()` → aceptan **cualquier 2xx** y devuelven el **dict completo** a su llamador;
+    no dependen de campos concretos, pero sí de que la respuesta sea 2xx y JSON.
+  - **auto-mat-ion**: publica por Redis (`emitEvent`), no por el POST REST → **fuera de este contrato**.
+  - **CONCLUSIÓN: sin drift** — el `event_id` que los dos únicos consumidores de campo (biohack/cybertools) leen está siempre
+    presente; ningún SDK exige 201 ni un campo ausente. El shape ya estaba **documentado** en el mock e2e
+    `tests/e2e/mocks/contracts.py::EventCreated` (`event_id: UUID, status: Literal["created"], timestamp: datetime`) y
+    asertado en unit (`test_api_events_codex.py`), pero **no enforzado por el endpoint**.
+- **Hallazgo estructural (interno a Micelia):** el endpoint no tenía `response_model` → el contrato de salida que 5 SDK
+  consumen no estaba pinneado en runtime (FastAPI no descartaba claves extra ni validaba tipos) ni visible en el OpenAPI que
+  esos SDK podrían usar para generar clientes. Mismo antipatrón de fondo que Ciclos 42–43: un contrato conocido/documentado
+  que la capa de destino (aquí el `response_model`) no enforza.
+
+**Hecho (1 commit atómico `feat(events)`):**
+- Nuevo modelo **`EventCreateResponse`** (`event_id: UUID`, `status: Literal["created"]`, `timestamp: datetime`) con docstring
+  que ancla el contrato auditado (qué SDK lee qué). `@router.post("", response_model=EventCreateResponse)` → FastAPI ahora
+  valida/serializa la salida y publica el shape en OpenAPI. **Cambio no observable en el body** (mismas 3 claves, mismos
+  valores; `event_id` sigue serializándose como UUID-string) → 100% retrocompatible con los 5 SDK.
+- **+1 test** `test_create_event_response_matches_output_contract`: `set(keys) == {event_id, status, timestamp}` (sin claves
+  extra), `event_id` parsea como `UUID`, `status == "created"`, `timestamp` ISO válido. Fija el contrato que biohack/cybertools
+  dependen para no regresar en silencio.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1462 pass** + 2 skip, era 1461 en Ciclo 43: **+1** test), cov ✓ (**93.12%**, ≥ gate **92**; el `response_model` no añade
+statements ejecutables no cubiertos). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué
+gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Nota menor de coherencia REST observada (NO tomada, conservadora):
+el endpoint devuelve **HTTP 200** para una creación mientras el body dice `status:"created"` — la convención REST sería **201
+Created**. No se cambia porque los 5 SDK aceptan 200 (biohack/cybertools `in (200,201)`, canela/codking `raise_for_status`) y
+migrar a 201 es un cambio de comportamiento observable sin valor claro; si en el futuro se quiere alinear con REST puro,
+verificar antes que ningún consumidor comprueba `== 200` exacto (hoy ninguno lo hace). Siguen abiertas **DP-8** (canela no
+emite `version` en health-check), **DP-7** (namespace de canal `idm/vital/micelia`), **DP-6** (semántica de `user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 45):** contratos de eventos REST auditados end-to-end — request (8 campos + `correlation_id`, Ciclo 43) y
+response (`EventCreateResponse`, Ciclo 44) ya fijados y testeados. Siguiente en **coherencia inter-proyecto (#4)**: auditar el
+**contrato de `GET /api/v1/events` y sus filtros de query** (`EventQuery`: `category/subcategory/source/event_type/since/until/
+limit/offset`) vs lo que el `EventStore.query_events` realmente soporta y lo que algún consumidor (frontend Next.js panel o
+SDK) espera del shape de cada evento devuelto — ¿el serializado de `IdmEventModel` que sale por `GET` incluye `correlation_id`
+ahora que se persiste?, ¿coincide con lo que el panel lee? Alternativa a cobertura: `cli.py`/`main.py` vía subprocess. No tocar
+infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 43 (COHERENCIA INTER-PROYECTO #9: audita el **contrato de eventos que Micelia recibe por REST** — el `EventCreate` que valida `POST /api/v1/events` vs el `VitalEvent.to_dict()` que los 5 SDK de dominio realmente envían. Hallazgo: los 8 campos comunes coinciden, pero **`EventCreate` NO declaraba `correlation_id`** mientras biohack/cybertools SÍ lo emiten → Pydantic (`extra='ignore'`) lo descartaba en el ingest y `create_event` nunca lo pasaba a `append_event`, dejando la columna indexada **siempre NULL** para eventos REST → `GET /events/by-correlation/{id}` no encontraba nunca esos eventos: **feature de traza de flujos muerta para los SDK externos**. Deliverable Micelia-only: **`EventCreate` gana `correlation_id: Optional[UUID]`** + se propaga a `append_event` · +2 tests (forward + 422 UUID inválido) · verify verde 1461 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 42 (1459 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 42
