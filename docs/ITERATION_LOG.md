@@ -16,6 +16,64 @@
 
 ---
 
+## 2026-07-14 — Ciclo 52 (CAMBIO DE EJE ejecutado: sigo la recomendación de Ciclo 51 y salgo del Event Store (agotado en Ciclos 43–51) hacia un **router que el panel SÍ consume**. Audito el contrato **`GET /api/v1/prompts` → `PromptListResponse`/`Prompt`** — el panel lo consume intensivamente vía `promptsApi` (~20 métodos en `frontend/src/lib/api.ts`). **CONCLUSIÓN: SIN drift** — (a) el envelope que devuelve `store.list_prompts` es `{prompts, count, limit, offset, total}` = **exactamente** `PromptListResponse` (`frontend/src/types/api.ts:182`); (b) `_prompt_to_dict` (`prompt_store.py:548`) emite **los 25 campos** que declara `interface Prompt` (`api.ts:154`) **más 7 extras inertes** (`workflow, classified_at, staged_at, archived_at, promoted_to, promoted_ref, provider_policy`) → superset, el panel toma su subset. **Gap encontrado (cobertura, no correctitud):** el endpoint `list_prompts` **NO tiene `response_model`** (a diferencia de `create`/eventos) → ni test ni OpenAPI blindan el shape del objeto `Prompt`; y `test_prompt_to_dict` **solo asertaba 8 de los 25 campos** que el panel consume. Un refactor que dropee o renombre cualquiera de los otros 17 (el remapeo silencioso `metadata_json`→`metadata` es el más frágil, p.ej. `provider_used`→`provider` o dropear `cost_usd`) **rompería el panel pasando el verify entero**. Deliverable Micelia-only: **+1 test** `test_prompt_to_dict_covers_panel_prompt_contract` + constante `PANEL_PROMPT_FIELDS` (fuente de verdad del panel) que falla si falta cualquier campo consumido · **probado** que el guard caza tanto un drop (`provider_used`) como el rename (`metadata_json`) · verify verde 1478 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 51 (1477 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 51
+recomendó cambiar de eje al router de prompts (consumido por el panel). Trabajo sobre código propio de Micelia
+(`tests/test_prompt_store_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = `store.list_prompts` → `_prompt_to_dict` vs `PromptListResponse`/`Prompt` del panel):**
+- **(a) Envelope — SIN drift:** `list_prompts` (`prompt_store.py:182`) retorna `{prompts, count, limit, offset, total}`; el panel tipa
+  `PromptListResponse { prompts: Prompt[]; count; limit; offset; total }` (`api.ts:182`) y `promptsApi.list()` lo lee como tal
+  (`lib/api.ts:302`). **Match exacto.**
+- **(b) Objeto `Prompt` — SIN drift (superset):** `_prompt_to_dict` emite los 25 campos de `interface Prompt` **más** 7 extras
+  (`workflow, classified_at, staged_at, archived_at, promoted_to, promoted_ref, provider_policy`) que el panel no declara → inertes,
+  TS tolera claves extra en runtime. Todo campo que el panel lee está presente.
+- **Sin `response_model`:** `@router.get("")` (`prompts.py:103`) devuelve el dict del store **crudo**, sin `response_model` → no hay
+  enforcement de shape en runtime ni en OpenAPI (a diferencia de `create_event`/`EventCreateResponse`). El único guard posible es un
+  test de serialización.
+- **GAP ADYACENTE (cobertura):** `test_prompt_to_dict` asertaba **8 de 25** campos (`prompt_id, content, category, priority, tags,
+  tokens_input, tokens_output, created_at`). Los otros 17 —incluidos `status, provider_used, cost_usd, latency_ms, correlation_id,
+  metadata`— quedaban **sin blindar**: una regresión en `_prompt_to_dict` que los dropee/renombre corrompe la vista de prompts del
+  panel sin cazarlo ningún test.
+
+**Hecho (1 commit atómico `test(prompts)` `7e89229`):**
+- **`test_prompt_to_dict_covers_panel_prompt_contract`** + constante módulo-nivel **`PANEL_PROMPT_FIELDS`** (frozenset con los 25
+  campos EXACTOS de `frontend/src/types/api.ts:154`): asserta `PANEL_PROMPT_FIELDS <= result.keys()` → si `_prompt_to_dict` dropea o
+  renombra cualquier campo consumido por el panel, el test falla nombrando el campo faltante. **Probado** fuera del test que el guard
+  caza un drop de `provider_used` y el rename `metadata_json`→`metadata`; y que el backend hoy es superset (7 extras inertes).
+- Cambio **test-only** (no había defecto de producción): la auditoría concluyó "sin drift" en (a) y (b); el deliverable es regresión
+  que fija el contrato micelia↔panel sobre un router con consumidor real (prioridad #4 coherencia + #3 cobertura con valor).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; corregido N806 promoviendo la constante a módulo-nivel),
+typecheck ✓ (mypy sobre `app/`, 0 errores; el test no toca `app/`), test ✓ (**1478 pass** + 2 skip, era 1477 en Ciclo 51: **+1**),
+cov ✓ (**93.12%**, ≥ gate **92**). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni
+infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Observación de coherencia (no bug, candidata a decisión):** varios
+endpoints del router de prompts devuelven el dict del store **sin `response_model`** (`list_prompts`, `get_prompt`, `get_inbox`,
+`get_staging`, `get_archive`, `get_stats`, `list_lists`) → el contrato con el panel se sostiene **solo por tests de serialización**,
+no por el schema de FastAPI; el panel de eventos SÍ tiene `response_model` (`EventCreateResponse`). Añadir `response_model` a los
+GET de prompts blindaría el shape en runtime + OpenAPI y documentaría el contrato, pero es cambio de producción con superficie
+amplia (7 endpoints) → lo anoto como **DP-10** en vez de tomarlo hoy. Siguen abiertas **DP-9** (paginación con total global),
+**DP-8** (canela sin `version` en health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 53):** el router de prompts tiene ahora blindado su contrato de lectura principal (`list`/`_prompt_to_dict` ↔
+`PromptListResponse`/`Prompt`). Siguiente paso recomendado, **misma metodología sobre la superficie de prompts que el panel más
+consume**: candidato concreto = auditar el contrato de **`GET /api/v1/prompts/stats` → `PromptStats`** (`promptsApi.stats()`,
+`lib/api.ts:322`) y **`GET /api/v1/prompts/pipeline/status` → `PipelineStatus`** (`promptsApi.pipelineStatus()`) — verificar que el
+shape que devuelve `store.get_stats()`/el pipeline casa con los `interface PromptStats`/`PipelineStatus` del panel, mismo método que
+hoy. Alternativa de mayor valor si Jessicache aprueba **DP-10**: añadir `response_model` a los GET de prompts (blinda en runtime+
+OpenAPI lo que hoy solo cubren tests). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 51 (PIVOTE de eje: el Event Store está agotado en #4; audito el **gateway** (recomendación Ciclo 50) y descubro que **el panel NO consume ninguna ruta `/gateway/*`** → el ángulo gateway↔panel no tiene consumidor; el gateway es server-to-server (proxy a dominios) y está **100% cubierto + contrato aserto** (headers/body/4 rutas/errores/pipeline canela+ideacursi). Sin trabajo de valor ahí. Reoriento a **prioridad #2 (roadmap)**: reviso `PLAN_MICELIA_v0.md §7 DoD` y encuentro un ítem `[x]` cuya evidencia estaba **incompleta** — *"Los 5 dominios funcionales siguen siendo source-id válidos **sin warnings**"* (riesgo #1 del plan: "test que valida que los 5 sources siguen siendo válidos sin warnings"). El test guardián `test_canonical_sources_unchanged` (6 sources canónicos parametrizados) **solo asertaba el valor de retorno `== src`, NO la ausencia de warning** → un refactor que ampliara el `DeprecationWarning` a cualquier source pasaría el test violando la mitad "sin warnings" del DoD. Deliverable Micelia-only: **fortalecer el guard con `warnings.simplefilter("error")`** (mismo patrón que `test_legacy_source_silent_when_warn_false`) para que CUALQUIER warning sobre un canónico haga fallar el test · probado que el guard caza un warning espurio · verify verde 1477 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 50 (1477 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 50
