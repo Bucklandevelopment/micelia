@@ -16,6 +16,65 @@
 
 ---
 
+## 2026-07-14 — Ciclo 54 (CIERRA el eje "contratos de lectura de prompts ↔ panel" (Ciclos 52–53): audito el último contrato de `promptsApi` sin blindar — **`GET /prompts/lists` y `GET /prompts/lists/{slug}` → `PromptList`** (`frontend/src/types/api.ts`), consumidos por `promptsApi.listLists()/getList()` (`lib/api.ts:358-360`). **CONCLUSIÓN: SIN drift** — `_list_to_dict` (`prompt_store.py:585`) emite **exactamente** los 10 campos de `interface PromptList` (`list_id, name, slug, description, category, content_md, is_active, created_at, updated_at, metadata`), sin extras ni faltantes (match exacto, no superset). Los endpoints casan: `/lists` → `{lists: PromptList[], count}` = `listLists()`; `/lists/{slug}` → dict crudo de `_list_to_dict` = `getList(): PromptList`. **Gap encontrado (cobertura, no correctitud):** los 2 tests de serialización (`test_list_to_dict_with_updated_at` + `test_list_to_dict_none_dates`) solo asertaban **4 de los 10** campos (`slug, created_at, updated_at, metadata`) → los otros 6 que el panel consume (`list_id, name, description, category, content_md, is_active`) quedaban **sin blindar**: un rename/drop —el remapeo silencioso `metadata_json`→`metadata`, o p.ej. `is_active`→`active`— rompería el panel pasando el verify entero. Deliverable Micelia-only: **+1 test** `test_list_to_dict_covers_panel_list_contract` + constante `PANEL_LIST_FIELDS` (fuente de verdad del panel), **espejo** de `test_prompt_to_dict_covers_panel_prompt_contract` (Ciclo 52) · **probado** que el guard caza el rename `metadata_json` y el drop de `is_active`; y que el backend hoy es match exacto (0 extras) · verify verde 1479 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 53 (1478 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 53
+recomendó auditar `GET /prompts/lists` (consumido por el panel). Trabajo sobre código propio de Micelia
+(`tests/test_prompt_store_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = `_list_to_dict` / endpoints `/lists*` vs `interface PromptList` del panel):**
+- **Objeto `PromptList` — SIN drift (match exacto):** `_list_to_dict` (`prompt_store.py:585`) devuelve los **10 campos exactos** que
+  declara `interface PromptList` (`api.ts`): `list_id, name, slug, description, category, content_md, is_active, created_at,
+  updated_at, metadata`. **Ni extras ni faltantes** (a diferencia de `_prompt_to_dict`, que es superset con 7 extras inertes).
+  El único remapeo de nombre es `metadata_json`→`metadata` (misma fragilidad que `_prompt_to_dict`, Ciclo 52).
+- **Envelopes — SIN drift:** `list_all_lists` (`prompts.py:170`) → `{lists: [...], count}`; el panel tipa
+  `listLists(): { lists: PromptList[]; count: number }` (`lib/api.ts:358`). `get_list` (`prompts.py:390`) devuelve el dict crudo de
+  `_list_to_dict`; el panel tipa `getList(): PromptList` (`lib/api.ts:360`). Ambos match.
+- **Sin `response_model`:** los dos GET de listas devuelven el dict del store crudo → sin enforcement de shape en runtime/OpenAPI
+  (mismo patrón que el resto de GET de prompts, DP-10). El único guard posible es un test de serialización.
+- **GAP ADYACENTE (cobertura):** `test_list_to_dict_with_updated_at` asertaba `slug, created_at, updated_at`;
+  `test_list_to_dict_none_dates` asertaba `created_at, updated_at, metadata` (+ el fallback `None→{}`). Unión = **4 de 10** campos.
+  Los 6 restantes (`list_id, name, description, category, content_md, is_active`) quedaban sin aserción → una regresión que los
+  dropee/renombre corrompe la vista de listas del panel sin cazarlo ningún test.
+
+**Hecho (1 commit atómico `test(prompts)` `e53a999`):**
+- **`test_list_to_dict_covers_panel_list_contract`** + constante módulo-nivel **`PANEL_LIST_FIELDS`** (frozenset con los 10 campos
+  EXACTOS de `frontend/src/types/api.ts` `interface PromptList`): asserta `PANEL_LIST_FIELDS <= result.keys()` → si `_list_to_dict`
+  dropea/renombra cualquier campo consumido por el panel, el test falla nombrando el faltante. **Espejo** del guard de `_prompt_to_dict`
+  (Ciclo 52). **Probado** fuera del test que caza el rename `metadata_json`→`metadata` y el drop de `is_active`; y que el backend hoy
+  es match exacto (0 campos extra).
+- Cambio **test-only** (no había defecto de producción): la auditoría concluyó "sin drift"; el deliverable es regresión que fija el
+  contrato micelia↔panel del último objeto de lectura de prompts sin blindar (prioridad #4 coherencia + #3 cobertura con valor).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_LIST_FIELDS` a módulo-nivel evita el N806 que corregí en
+Ciclo 52), typecheck ✓ (mypy sobre `app/`, 0 errores; el test no toca `app/`), test ✓ (**1479 pass** + 2 skip, era 1478 en Ciclo 53:
+**+1**), cov ✓ (**93.12%**, ≥ gate **92**). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué
+gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Con Ciclos 52–54, **los 4 objetos de lectura que el panel consume del router
+de prompts quedan blindados por tests** contra sus tipos TypeScript: `Prompt`/`PromptListResponse` (C52), `PromptStats` (ya estaba) +
+`PipelineStatus` (C53), y `PromptList` (C54). Reafirma **DP-10**: esos GET siguen **sin `response_model`** → el contrato se sostiene
+solo por tests de serialización, no por el schema FastAPI/OpenAPI; añadirlos lo blindaría en runtime + lo documentaría en OpenAPI.
+Siguen abiertas **DP-9** (paginación con total global), **DP-8** (canela sin `version` en health-check), **DP-7** (namespace
+`idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 55):** el eje "contratos de lectura de prompts ↔ panel" está **agotado** (C52–54: `Prompt`, `PromptStats`,
+`PipelineStatus`, `PromptList` blindados; los 4 objetos que `promptsApi` lee). Dos caminos recomendados: **(A) tarea de producción
+acotada — abordar DP-10**: añadir `response_model` a los GET de prompts empezando por el de mayor superficie (`list_prompts` →
+`response_model=PromptListResponse` como modelo Pydantic nuevo en `app/api/v1/prompts.py`), lo que blinda el shape en runtime+OpenAPI
+y elimina la dependencia exclusiva de tests (requiere crear los modelos Pydantic espejo de los TS del panel; superficie 1 endpoint
+por commit). **(B) cambiar de router**: aplicar la misma metodología de contrato al siguiente que el panel consuma intensamente —
+candidato = **`skillsApi`/`GET /api/v1/skills`** o **`dashboardApi`/`GET /api/v1/dashboard`** (`lib/api.ts`), auditar que el shape del
+backend casa con los `interface` del panel. Preferible (A) si Jessicache aprueba DP-10 (cierra deuda estructural real); si no, (B).
+No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 53 (CONTINÚA el eje "router de prompts que el panel consume" (Ciclo 52): audito los otros dos contratos que `promptsApi` consume — **`GET /prompts/stats` → `PromptStats`** y **`GET /prompts/pipeline/status` → `PipelineStatus`** (`frontend/src/types/api.ts`). **CONCLUSIÓN: SIN drift** en ambos — (a) `store.get_stats` devuelve **exactamente** los 8 campos de `PromptStats` (`total, by_status, by_category, completed_today, total_tokens_input, total_tokens_output, total_cost_usd, avg_latency_ms`), sin extras ni faltantes; ya está **totalmente blindado** por `test_get_stats` (assertaba los 8) → sin trabajo ahí. (b) `pipeline_status` devuelve el shape anidado `{agent:{running,last_scan,pending_count,interval_seconds}, executor:{running,active_count,completed_today,failed_today}}` = `PipelineStatus` exacto, con **dos remapeos de nombre** atributo→clave (`agent.interval`→`"interval_seconds"`, `agent.last_pending_count`→`"pending_count"`). **Gap encontrado (cobertura, no correctitud):** `test_pipeline_status_with_components` **preparaba** `interval=60, active_count=1, failed_today=2` en los mocks pero **NO los asertaba** (solo running/last_scan/pending_count/completed_today) → el remapeo más frágil, `interval`→`interval_seconds` que el panel consume como `agent.interval_seconds`, quedaba **sin guard**: renombrar/dropear esa clave de salida rompería el panel pasando el verify entero. Deliverable Micelia-only: **fortalecer el test en sitio** asertando el **set exacto de claves anidadas** de `agent` y `executor` + los 3 campos que el mock preparaba sin asertar · **probado** que el guard caza el rename `interval_seconds`→`interval_sec` (falla en la aserción de key-set) · verify verde 1478 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 52 (1478 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 52
