@@ -179,6 +179,14 @@ async def list_runs(
                 "prompt_id": r.get("prompt_id"),
                 "workflow": r.get("workflow"),
                 "status": r["status"],
+                # `steps` honors the frontend `interface AgentRun`: the runs
+                # panel (agents/page.tsx) reads `run.steps` directly off list
+                # items — both to locate the running step in the workflow view
+                # and to render step detail on expand — with no follow-up
+                # get_run() call. Projecting to only `step_count` left
+                # `run.steps` undefined and crashed those renders. `step_count`
+                # stays as an inert extra for any lightweight consumer.
+                "steps": r.get("steps", []),
                 "total_duration_ms": r.get("total_duration_ms"),
                 "total_cost_usd": r.get("total_cost_usd"),
                 "step_count": len(r.get("steps", [])),

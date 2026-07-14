@@ -257,12 +257,51 @@ async def test_list_runs_happy_projection():
         "prompt_id": "p1",
         "workflow": "reviewed_execute",
         "status": "completed",
+        # `steps` is passed through so the list honors `interface AgentRun`
+        # (the panel reads run.steps off list items). `step_count` stays as
+        # an inert extra.
+        "steps": [{"agent": "planner"}, {"agent": "executor"}],
         "total_duration_ms": 1200,
         "total_cost_usd": 0.01,
         "step_count": 2,  # len(steps)
         "started_at": "2026-07-12T00:00:00Z",
         "completed_at": "2026-07-12T00:00:02Z",
     }
+
+
+# Fields of `interface AgentRun` (frontend/src/lib/api.ts) that the agents runs
+# panel (frontend/src/app/agents/page.tsx) reads off items returned by
+# `agentsApi.runs()` → GET /agents/runs. `steps` is the field whose omission
+# crashed the panel (run.steps.findIndex / run.steps.length on undefined);
+# this frozenset is the source of truth guarding the list projection contract.
+PANEL_AGENTRUN_FIELDS = frozenset(
+    {
+        "run_id",
+        "prompt_id",
+        "workflow",
+        "status",
+        "steps",
+        "started_at",
+        "completed_at",
+    }
+)
+
+
+async def test_list_runs_covers_panel_agentrun_contract():
+    # Guards GET /agents/runs against `interface AgentRun`: every field the
+    # panel reads off a list item must be present. Regression for the drift
+    # where the projection emitted only `step_count`, leaving `run.steps`
+    # undefined and crashing the runs panel on render/expand.
+    app = build_app()
+    configure_state(app, workflow_engine=fake_workflow_engine())
+    async with client_for(app) as ac:
+        resp = await ac.get("/api/v1/agents/runs", headers=AUTH)
+    assert resp.status_code == 200
+    run = resp.json()["runs"][0]
+    missing = PANEL_AGENTRUN_FIELDS - run.keys()
+    assert not missing, f"list_runs drifted from interface AgentRun: {missing}"
+    # `steps` must be the array (not merely counted) so the panel can render it.
+    assert isinstance(run["steps"], list)
 
 
 async def test_list_runs_query_params_echoed():
