@@ -16,6 +16,64 @@
 
 ---
 
+## 2026-07-14 — Ciclo 56 (**PRIMER DRIFT REAL del eje de contratos** — y se ARREGLA, no se documenta: audito `mcpApi` / `GET /api/v1/mcp/servers` → `interface MCPServer` (`frontend/src/lib/api.ts:457`) como pidió Ciclo 55. **A diferencia de C52–C55 (todos "sin drift"), aquí SÍ hay drift real con impacto UX**: el panel `MCPServersTab` (`frontend/src/app/skills/page.tsx`) renderiza `server.name` (título de la tarjeta, línea 454) y `server.status` (badge de estado línea 467 + **decide qué botón mostrar, Start vs Stop**, línea 509), pero `list_servers`/`get_server` (`app/services/mcp_generator.py`) **NUNCA emitían `name`** y emitían **`running: bool`** en vez de **`status: "stopped"|"running"`**. Efecto en el panel real: título de cada servidor **en blanco** (`server.name` = `undefined`) y `server.status === "stopped"` siempre `false` → **todo servidor parado mostraba el botón "Stop"** (nunca "Start"), imposibilitando arrancarlo desde la UI. Además el fallback de metadata ilegible **omitía `tools`** → el panel **crasheaba** en `server.tools.length` (línea 484). Decisión: es código propio de Micelia (`app/services/`, no repo hermano) y un `fix:` que el panel de Micelia necesita → lo arreglo (prioridad #4 coherencia inter-proyecto). Fix **additivo y compat con metadata legada**: deriva `name`(=server_id) y `status`(de running) en tiempo de lectura, persiste `name` en `metadata.json` al generar, mantiene `running` como extra inerte, completa el fallback. **+1 constante `PANEL_MCPSERVER_FIELDS` + 3 tests** que blindan los 7 campos y la derivación de status, probados por mutación · verify verde 1483 pass (+3) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 55 (1480 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 55
+recomendó (A) aplicar la metodología de contrato a `mcpApi` → `interface MCPServer`. Trabajo sobre código propio de Micelia
+(`app/services/mcp_generator.py` + `tests/test_mcp_generator_codex.py`); sin tocar infra, `.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (fuente de verdad = `list_servers`/`get_server` vs `interface MCPServer` del panel + su uso en `MCPServersTab`):**
+- **`interface MCPServer` (7 campos):** `server_id, name, description, language, tools[{name,description}], status:'stopped'|'running',
+  created_at`. Consumido por `mcpApi.servers()` (`{servers: MCPServer[], count}`) y `mcpApi.get()` (`MCPServer & {source_code}`).
+- **DRIFT-1 `name` ausente:** `metadata.json` (escrito en `generate`, `mcp_generator.py:66`) tenía `server_id` pero **no `name`**;
+  `list_servers` devolvía el meta crudo → el panel pintaba `{server.name}` como `undefined`. (`server_id` == nombre en `generate`.)
+- **DRIFT-2 `status` vs `running`:** el backend añadía `meta["running"] = bool`; el panel espera `status: 'stopped'|'running'`
+  (string). `server.status` era `undefined` → badge en blanco y `server.status === 'stopped'` (línea 509) siempre `false` →
+  **botón "Stop" permanente** incluso en servidores parados.
+- **DRIFT-3 fallback rompe el panel:** el dict de metadata-ilegible (`mcp_generator.py:370`) omitía `tools` → `server.tools.length`
+  (panel línea 484) lanzaría sobre `undefined`. También le faltaban `name/status/created_at`.
+- **Sin `response_model`:** los GET de `mcp` devuelven el dict crudo del generator (mismo patrón que prompts/skills, **DP-10**);
+  el contrato no está blindado en runtime/OpenAPI. Los API-tests (`test_api_mcp_codex.py`) **mockean** el generator, así que el drift
+  vivía sin cazar en el serializador real (`mcp_generator.list_servers/get_server`), cuyos tests solo asertaban `running`, no `status`/`name`.
+
+**Hecho (1 commit atómico `fix(mcp)` `9e8d87c`):**
+- **Fix producción (`mcp_generator.py`):** (1) `generate` persiste `"name": name` en `metadata.json`; (2) `list_servers` deriva
+  `meta.setdefault("name", server_id)` + `meta["status"] = "running" if running else "stopped"` en lectura (compat con metadata legada
+  sin `name`/`status`, sin regenerar); (3) fallback de metadata-ilegible completado con `name`, `tools: []`, `created_at: ""`, `status`;
+  (4) `get_server` deriva `name`+`status` igual. **Additivo**: `running` se mantiene (extra inerte), 0 regresión en los 39 tests previos.
+- **Regresión (`test_mcp_generator_codex.py`):** constante módulo-nivel **`PANEL_MCPSERVER_FIELDS`** (7 campos de `interface MCPServer`)
+  + `test_list_servers_covers_panel_mcpserver_contract` (7 campos + status stopped/running), `test_get_server_covers_panel_mcpserver_contract`,
+  `test_list_servers_derives_status_and_name_for_legacy_metadata` (compat metadata pre-C56), y **fortalecido**
+  `test_list_servers_unreadable_metadata_yields_fallback` (ahora exige `tools`/`status`/contrato completo). **Probado por mutación**:
+  quitar la derivación de `status`/`name` hace fallar los 3 guards de contrato; restaurado.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_MCPSERVER_FIELDS` módulo-nivel evita N806), typecheck ✓
+(mypy sobre `app/`, 0 errores; `mcp_generator.py` OK), test ✓ (**1483 pass** + 2 skip, era 1480 en C55: **+3**), cov ✓ (**93.13%**,
+≥ gate **92**; `mcp_generator.py` sube cobertura por el fallback ahora ejercido). Frontend no tocado (el fix es backend; el panel ya
+esperaba el contrato correcto). Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend
+(**este fix hace funcional el flujo MCP** que estaba roto — refuerza el valor de ese QA); (2) actualizar
+`Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con evidencia dura:** este drift MCP (`name` ausente,
+`running` en vez de `status`) **habría sido imposible** si los GET de mcp tuvieran `response_model=MCPServer` — FastAPI habría
+rechazado el dict sin `name`/`status` en runtime y lo habría documentado en OpenAPI. Es el primer caso donde la ausencia de
+`response_model` (DP-10) causó un **bug real de UX**, no solo deuda teórica. Recomiendo **elevar la prioridad de DP-10**. Siguen
+abiertas **DP-9** (paginación con total global), **DP-8** (canela sin `version`), **DP-7** (namespace `idm/vital/micelia`), **DP-6**
+(`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 57):** el contrato MCP queda blindado y **corregido**. Dos caminos: **(A) seguir la metodología sobre el resto de
+`mcpApi`/`agentsApi`** — candidato concreto = **`agentsApi` → `interface AgentCrew`/`AgentRun`** (`lib/api.ts:485,493`): auditar que el
+serializador de agents casa con `crew_id, name, agents, workflow, created_at` (AgentCrew) y `run_id, prompt_id, workflow, status,
+steps[{agent,status,output?,duration_ms?}], started_at` (AgentRun) — **ojo especial a `status` y campos anidados**, que es justo donde
+apareció el drift MCP. **(B)** con la evidencia dura de C56, si Jessicache aprueba **DP-10**, empezar a añadir `response_model` a los
+GET (empezar por mcp+skills+prompts, 1 endpoint por commit; blinda en runtime lo que hoy solo cubren tests y habría evitado este bug).
+Recomiendo (A) primero (puede haber más drift real en agents, mismo patrón `status`), luego (B). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 55 (CAMBIO DE ROUTER ejecutado: el eje "contratos de lectura de prompts ↔ panel" quedó agotado en Ciclos 52–54 (los 4 objetos que `promptsApi` lee blindados). Sigo la recomendación (B) de Ciclo 54 y aplico la MISMA metodología de contrato al siguiente router que el panel consume intensamente: **`skillsApi` / `GET /api/v1/skills` → `interface Skill`** (`frontend/src/lib/api.ts:427`; `skillsApi` tiene 8 métodos). No tomo la recomendación (A) DP-10 (`response_model`) porque sigue siendo **DECISIÓN PENDIENTE de Jessicache** y cambiaría el shape en runtime. **CONCLUSIÓN: SIN drift** — (a) envelope `list_skills` (`skills.py:80`) devuelve `{skills, count, active}` = superset de `{skills: Skill[], count}` del panel (`active` extra inerte); (b) `_skill_to_dict` (`skills_manager.py:300`) emite los **10 campos exactos** de `interface Skill` **+1 extra inerte** (`metadata`, que `Skill` no declara) → superset, mismo patrón que `_prompt_to_dict`/`_list_to_dict`, con el mismo remapeo frágil `metadata_json`→`metadata`. **Gap encontrado (cobertura, no correctitud):** las 3 aserciones existentes sobre la salida de `_skill_to_dict` (`test_create_skill_persists_and_returns_dict`, `test_create_skill_default_metadata`, `test_skill_to_dict_with_updated_at`) cubrían solo **6 de los 10** campos del panel (`name, slug, is_active, usage_count, updated_at, metadata`); los otros **5 — `skill_id` (key de React en la lista), `description`, `trigger_pattern`, `prompt_template`, `created_at`— quedaban sin guard**: un drop/rename los rompería en `skillsApi.list()/get()` pasando el verify entero. Deliverable Micelia-only: **+1 test** `test_skill_to_dict_covers_panel_skill_contract` + constante `PANEL_SKILL_FIELDS` (fuente de verdad = los 10 campos del panel) que falla si falta cualquiera · **probado** que caza el rename `skill_id`→`id` (fallo en aserción de faltantes; restaurado producción, grep confirma `"skill_id"` intacto) · verify verde 1480 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 54 (1479 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 54
