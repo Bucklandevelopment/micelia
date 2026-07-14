@@ -74,6 +74,37 @@ class IdmEventModel(Base):
     )
 
 
+#: Source-id legado (previo al rebrand v0.1) → source canónico del orquestador.
+#: Se normaliza tanto al ESCRIBIR (append_event) como al FILTRAR en lecturas
+#: (query_events) para que write y read sean simétricos durante la ventana de
+#: deprecación. Removible en v0.2. Ver docs/REBRAND_MICELIA.md §4 (T1.4).
+_LEGACY_SOURCE = "idm-core"
+_CANONICAL_SOURCE = "micelia"
+
+
+def _normalize_source(source: Optional[str], *, warn: bool = True) -> Optional[str]:
+    """Normaliza el source-id legacy ``idm-core`` → ``micelia``.
+
+    Un único punto de verdad usado en escritura (``append_event``) y en el filtro
+    de lectura (``query_events``), para que un consumidor que aún filtre por el
+    valor deprecado ``idm-core`` encuentre los eventos que se persistieron ya
+    normalizados como ``micelia`` (antes la asimetría write/read devolvía [] en
+    esas consultas). ``None`` pasa sin tocar (filtro ausente).
+    """
+    if source == _LEGACY_SOURCE:
+        if warn:
+            import warnings
+
+            warnings.warn(
+                f"source='{_LEGACY_SOURCE}' está deprecado, usa "
+                f"'{_CANONICAL_SOURCE}'. Será removido en v0.2.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        return _CANONICAL_SOURCE
+    return source
+
+
 class EventStore:
     """
     Store de eventos con persistencia en PostgreSQL.
@@ -138,16 +169,10 @@ class EventStore:
         Returns:
             UUID del evento creado
         """
-        # Compat: normaliza el source-id legacy 'idm-core' -> 'micelia'.
+        # Compat: normaliza el source-id legacy 'idm-core' -> 'micelia' al escribir.
+        # Mismo helper que usa el filtro de lectura (simetría write/read).
         # Decisión documentada en docs/REBRAND_MICELIA.md §4 (T1.4).
-        if source == "idm-core":
-            import warnings
-            warnings.warn(
-                "source='idm-core' está deprecado, usa 'micelia'. Será removido en v0.2.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            source = "micelia"
+        source = _normalize_source(source)  # type: ignore[assignment]
 
         event_id = uuid4()
 
@@ -196,6 +221,11 @@ class EventStore:
         """
         async with self.async_session() as session:
             query = select(IdmEventModel)
+
+            # Simetría write/read: normaliza el source-id legacy en el filtro
+            # igual que al persistir, para que `source='idm-core'` encuentre los
+            # eventos guardados como 'micelia' (Ciclo 47).
+            source = _normalize_source(source, warn=False)
 
             conditions = []
             if category:

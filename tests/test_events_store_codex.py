@@ -6,13 +6,14 @@ Se testea con AsyncSession mockeada (MagicMock/AsyncMock) — sin Postgres, sin
 dependencias nuevas — replicando el patrón de tests/test_prompt_store_codex.py.
 """
 
+import warnings
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
-from app.events.store import EventStore, IdmEventModel
+from app.events.store import EventStore, IdmEventModel, _normalize_source
 from app.models.base import Base
 
 # ---------------------------------------------------------------------------
@@ -253,6 +254,37 @@ class TestAppendEvent:
 
 
 # ---------------------------------------------------------------------------
+# _normalize_source (helper compartido write/read)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeSource:
+    """El source-id legacy 'idm-core' se normaliza a 'micelia' en un único
+    punto de verdad usado tanto al persistir como al filtrar en lecturas."""
+
+    def test_legacy_source_normalized_with_warning(self):
+        with pytest.warns(DeprecationWarning):
+            assert _normalize_source("idm-core") == "micelia"
+
+    def test_legacy_source_silent_when_warn_false(self):
+        # El filtro de lectura normaliza en silencio (no spamear warnings por
+        # cada query); el warning se emite en la escritura (ingest).
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # cualquier warning haría fallar
+            assert _normalize_source("idm-core", warn=False) == "micelia"
+
+    @pytest.mark.parametrize(
+        "src", ["biohack", "canela", "ideacursi", "cybertools", "auto-mat-ion", "micelia"]
+    )
+    def test_canonical_sources_unchanged(self, src):
+        assert _normalize_source(src) == src
+
+    def test_none_passes_through(self):
+        # Filtro ausente en query_events -> None sin tocar.
+        assert _normalize_source(None) is None
+
+
+# ---------------------------------------------------------------------------
 # query_events
 # ---------------------------------------------------------------------------
 
@@ -298,6 +330,23 @@ class TestQueryEvents:
 
         results = await store.query_events(source="micelia")
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_query_events_normalizes_legacy_source_filter(
+        self, store, mock_session
+    ):
+        # Simetría write/read (Ciclo 47): filtrar por el legacy 'idm-core' debe
+        # buscar en la BD por 'micelia' (donde append_event los persistió), no
+        # por la cadena legacy (que nunca se almacena) -> antes devolvía [].
+        mock_session.execute = AsyncMock(return_value=_scalars_result([]))
+        _bind(store, mock_session)
+
+        await store.query_events(source="idm-core")
+
+        stmt = mock_session.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "micelia" in compiled
+        assert "idm-core" not in compiled
 
 
 # ---------------------------------------------------------------------------
