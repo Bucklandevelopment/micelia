@@ -17,6 +17,20 @@ from app.services.prompt_store import PromptStore
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Contrato EXACTO del panel Next.js: frontend/src/types/api.ts `interface Prompt`
+# (25 campos que el panel consume vía `promptsApi` en lib/api.ts). El endpoint
+# `GET /api/v1/prompts` no tiene `response_model`, así que este set es el único
+# guard del shape del objeto Prompt entre backend y panel.
+PANEL_PROMPT_FIELDS = frozenset({
+    "prompt_id", "content", "category", "priority", "status",
+    "model_used", "provider_used", "prefer_paid", "review_score",
+    "iterations", "output", "error", "created_at", "scheduled_at",
+    "processing_at", "completed_at", "parent_prompt_id", "correlation_id",
+    "tags", "metadata", "source", "tokens_input", "tokens_output",
+    "latency_ms", "cost_usd",
+})
+
+
 def _make_prompt_model(**overrides):
     """Create a PromptModel-like object with sensible defaults."""
     defaults = dict(
@@ -713,6 +727,25 @@ class TestSerialization:
         result = store._prompt_to_dict(prompt)
         assert result["scheduled_at"] is None
         assert result["completed_at"] is None
+
+    def test_prompt_to_dict_covers_panel_prompt_contract(self, store):
+        """Guard: _prompt_to_dict emite TODOS los campos que el panel consume.
+
+        `GET /api/v1/prompts` no tiene `response_model`, así que ni un test ni el
+        OpenAPI blindan el shape del objeto `Prompt`. El panel Next.js lo tipa en
+        `frontend/src/types/api.ts` (`interface Prompt`, 25 campos) y lo consume
+        intensivamente vía `promptsApi` (`lib/api.ts`). Si un refactor de
+        `_prompt_to_dict` renombrara o dropeara cualquiera de estos campos —el
+        remapeo silencioso `metadata_json`→`metadata` es el más frágil— el panel
+        se rompería sin que el verify lo cazara. Este test liga la fuente de verdad
+        del panel al serializador del backend: cualquier campo consumido que
+        desaparezca hace fallar el test.
+        """
+        result = store._prompt_to_dict(_make_prompt_model())
+        missing = PANEL_PROMPT_FIELDS - result.keys()
+        assert not missing, (
+            f"_prompt_to_dict dropeó campos que el panel Prompt consume: {missing}"
+        )
 
 
 # ---------------------------------------------------------------------------
