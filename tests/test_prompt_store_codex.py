@@ -30,6 +30,15 @@ PANEL_PROMPT_FIELDS = frozenset({
     "latency_ms", "cost_usd",
 })
 
+# Contrato EXACTO del panel Next.js: frontend/src/types/api.ts `interface PromptList`
+# (10 campos que el panel consume vía `promptsApi.listLists()/getList()` en
+# lib/api.ts). Ni `GET /prompts/lists` ni `/lists/{slug}` tienen `response_model`,
+# así que este set es el único guard del shape del objeto PromptList backend↔panel.
+PANEL_LIST_FIELDS = frozenset({
+    "list_id", "name", "slug", "description", "category",
+    "content_md", "is_active", "created_at", "updated_at", "metadata",
+})
+
 
 def _make_prompt_model(**overrides):
     """Create a PromptModel-like object with sensible defaults."""
@@ -903,6 +912,25 @@ class TestPromptLists:
         assert result["created_at"] is None
         assert result["updated_at"] is None
         assert result["metadata"] == {}
+
+    def test_list_to_dict_covers_panel_list_contract(self, store):
+        """Guard: _list_to_dict emite TODOS los campos que el panel consume.
+
+        `GET /prompts/lists` y `/lists/{slug}` no tienen `response_model`, así que
+        ni un test ni el OpenAPI blindan el shape del objeto `PromptList`. El panel
+        Next.js lo tipa en `frontend/src/types/api.ts` (`interface PromptList`,
+        10 campos) y lo consume vía `promptsApi.listLists()/getList()`
+        (`lib/api.ts`). Si un refactor de `_list_to_dict` renombrara o dropeara
+        cualquier campo —el remapeo silencioso `metadata_json`→`metadata` es el más
+        frágil— el panel se rompería sin que el verify lo cazara. Este test liga la
+        fuente de verdad del panel al serializador del backend. Espejo de
+        `test_prompt_to_dict_covers_panel_prompt_contract` (Ciclo 52).
+        """
+        result = store._list_to_dict(_make_list_model())
+        missing = PANEL_LIST_FIELDS - result.keys()
+        assert not missing, (
+            f"_list_to_dict dropeó campos que el panel PromptList consume: {missing}"
+        )
 
 
 # ---------------------------------------------------------------------------
