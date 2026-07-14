@@ -4,7 +4,7 @@ Permite consultar, buscar y analizar eventos del Panel IDM.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -80,6 +80,36 @@ class EventCreate(BaseModel):
             "by-correlation/{id}` lo consulta — sin este campo se perdía en el ingest "
             "(Pydantic extra='ignore') y la traza quedaba siempre vacía (DP-8 / Ciclo 43)."
         ),
+    )
+
+
+class EventCreateResponse(BaseModel):
+    """Respuesta de `POST /api/v1/events`.
+
+    Contrato de SALIDA que consumen los SDK de dominio (auditado en Ciclo 44):
+      - **biohack** y **cybertools** (`vital_sdk/client.py::publish_event`) leen
+        `data.get("event_id")` cuando `status_code in (200, 201)` y devuelven ese
+        id a su llamador → **`event_id` es el único campo que consumen**.
+      - **canela** y **codking** (`vital_sdk/client.py::publish_event`) hacen
+        `resp.raise_for_status()` (aceptan cualquier 2xx) y devuelven el dict
+        completo → no dependen de campos concretos, pero sí del shape.
+      - **auto-mat-ion** publica por Redis, no por REST → fuera de este contrato.
+
+    Declarar el `response_model` fija el shape en runtime (FastAPI serializa y
+    descarta claves extra) y lo publica en el OpenAPI, alineado con el mock e2e
+    `tests/e2e/mocks/contracts.py::EventCreated`. Antes el endpoint devolvía un
+    dict sin tipar: mismo antipatrón que Ciclos 42–43 (un contrato conocido que
+    la capa de destino —aquí el `response_model`— no enforzaba).
+    """
+
+    event_id: UUID = Field(
+        ..., description="ID del evento persistido (UUID). Lo consumen biohack/cybertools."
+    )
+    status: Literal["created"] = Field(
+        default="created", description="Estado de la operación; siempre 'created'."
+    )
+    timestamp: datetime = Field(
+        ..., description="Instante UTC de creación (ISO 8601)."
     )
 
 
@@ -177,7 +207,7 @@ async def get_by_correlation(
     }
 
 
-@router.post("")
+@router.post("", response_model=EventCreateResponse)
 async def create_event(
     request: Request,
     event: EventCreate

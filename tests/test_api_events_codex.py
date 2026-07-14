@@ -16,7 +16,7 @@ Auth is the real ``verify_auth`` dependency; a dedicated valid key is generated.
 import contextlib
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -273,6 +273,30 @@ async def test_create_event_invalid_correlation_id_422():
     async with client_for(build_app(fake_store())) as ac:
         resp = await ac.post("/api/v1/events", json=body, headers=AUTH)
     assert resp.status_code == 422
+
+
+async def test_create_event_response_matches_output_contract():
+    # Contrato de SALIDA auditado en Ciclo 44: el `response_model`
+    # `EventCreateResponse` fija exactamente {event_id, status, timestamp}.
+    # biohack/cybertools leen `event_id` (UUID-string); canela/codking dependen
+    # del shape. Ninguna clave extra debe filtrarse.
+    new_id = uuid4()
+    store = fake_store(append_event=new_id)
+    body = {
+        "category": "security",
+        "source": "cybertools",
+        "action": "analyze",
+        "event_type": "security.alert",
+    }
+    async with client_for(build_app(store)) as ac:
+        resp = await ac.post("/api/v1/events", json=body, headers=AUTH)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"event_id", "status", "timestamp"}
+    # `event_id` es lo único que consumen biohack/cybertools → debe ser un UUID.
+    assert UUID(data["event_id"]) == new_id
+    assert data["status"] == "created"
+    datetime.fromisoformat(data["timestamp"])
 
 
 async def test_create_event_missing_required_field_422():
