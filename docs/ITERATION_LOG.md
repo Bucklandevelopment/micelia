@@ -16,6 +16,65 @@
 
 ---
 
+## 2026-07-14 — Ciclo 48 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `GET /api/v1/events/timeline/{date}`** — el endpoint parsea con `datetime.strptime(date, "%Y-%m-%d")` (naive) y `get_timeline` construye la ventana `[start, start+1día)` con `datetime.combine(date.date(), datetime.min.time())`; ¿la referencia de timezone del rango coincide con la de los `timestamp` persistidos (`utcnow_naive()`) o hay riesgo de desalineación de día por TZ local? **CONCLUSIÓN: SIN drift de timezone** — el camino completo es **naive-UTC de extremo a extremo**: `strptime`/`combine`/`date()`/`min.time()` **nunca consultan la TZ del sistema** (son parseo/composición puros, no `datetime.now()` ni `.astimezone()`), la columna `timestamp` es `DateTime` sin `timezone=True` y se escribe con `utcnow_naive()` → la comparación `timestamp >= start AND timestamp < end` es naive-vs-naive sobre la MISMA referencia naive-UTC; el rango selecciona exactamente el **día-UTC**, sin desalineación por TZ local. Shape `{date, events, count}` casa con lo que `eventsApi.timeline()` del panel espera (`{events}`, subconjunto OK — confirmado Ciclo 46). **Gap adyacente encontrado (cobertura, no correctitud):** los 3 tests de `get_timeline` NO aserta­ban los límites del rango — solo que `execute()` se llamaba → la parte sensible a TZ (que la ventana sea `[medianoche, medianoche+1día)` naive) estaba sin blindar; un cambio futuro a `timedelta(hours=1)`, `.astimezone()` o `datetime.now()` no lo cazaría ningún test. Deliverable Micelia-only: **+2 tests que compilan el SQL y asertan el rango exacto naive-UTC** (mismo patrón compile-SQL de Ciclo 47) · verify verde 1475 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 47 (1473 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 47
+recomendó auditar el contrato de `GET /events/timeline/{date}` (coherencia de timezone + shape). Trabajo sobre código propio de
+Micelia (`tests/test_events_store_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = camino completo del timeline: endpoint → `get_timeline` → columna `timestamp`):**
+- **Parseo del endpoint (`events.py:176`):** `datetime.strptime(date, "%Y-%m-%d")` → `datetime` naive a las 00:00:00. `strptime`
+  es parseo puro: **no aplica la TZ del sistema** (a diferencia de `datetime.now()`). Formato inválido → `ValueError` → 400.
+- **Ventana en `get_timeline` (`store.py:275`):** `start = datetime.combine(date.date(), datetime.min.time())` (medianoche naive)
+  y `end = start + timedelta(days=1)`. Ni `combine`, `date()` ni `min.time()` consultan la TZ local → `start`/`end` son naive puros.
+- **Persistencia:** los eventos llevan `timestamp=utcnow_naive()` (`store.py:183`) y la columna es `DateTime` **sin** `timezone=True`
+  (por diseño, `app/core/time.py` — evita migración Alembic). La comparación `timestamp >= start AND timestamp < end` es
+  **naive-vs-naive** sobre la misma referencia naive-UTC.
+- **CONCLUSIÓN — timezone COHERENTE (sin drift):** el rango es el **día-UTC** `[00:00, 24:00)`; como no hay conversión a TZ local
+  en ningún punto del camino, no existe riesgo de desalineación de día. Semántica UTC-naive uniforme con todo el sistema (misma
+  clase de verdicto "sin drift" que Ciclos 44 y 47). Nota: `calendar.py:130` sí hace `.replace(tzinfo=timezone.utc)` (aware), pero
+  es otro módulo (Google Calendar API necesita isoformat con offset) → divergencia por diseño, fuera del alcance del timeline.
+- **Shape:** backend devuelve `{date, events, count}`; `eventsApi.timeline()` del panel espera `{events}` → subconjunto OK
+  (Ciclo 46). Sin drift de contrato.
+- **GAP ADYACENTE (cobertura):** los 3 tests (`TestGetTimeline`) solo asertaban `execute()` llamado / longitud del resultado; **la
+  ventana `[start, end)` —lo sensible a TZ— no tenía ninguna aserción**. La coherencia naive-UTC recién auditada estaba sin blindar.
+
+**Hecho (1 commit atómico `test(events)` `014ecd0`):**
+- **`test_get_timeline_range_is_utc_naive_day`:** compila el SQL (`literal_binds`) y asserta que el rango es exactamente
+  `'2026-07-13 00:00:00'` ≤ ts < `'2026-07-14 00:00:00'` (start = medianoche, end = +1 día exacto) **y sin offset de TZ**
+  (`'+00:00'`/`'+0000'` ausentes → naive). Mismo patrón compile-SQL que el test de normalización de source de Ciclo 47.
+- **`test_get_timeline_floors_datetime_with_time_to_midnight`:** pasa `datetime(2026,7,13,15,30,45)` y asserta que el rango sigue
+  anclado a `00:00:00` (la hora `15:30:45` no aparece) → blinda la defensividad de `date.date()`.
+- Cambio **test-only** (no había defecto de producción que arreglar): la auditoría concluyó "sin drift", el deliverable es
+  regresión que fija la coherencia verificada (prioridad #3, cobertura con valor real sobre un cómputo sensible a TZ).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores; los tests nuevos
+no tocan `app/`), test ✓ (**1475 pass** + 2 skip, era 1473 en Ciclo 47: **+2** tests), cov ✓ (**93.12%**, ≥ gate **92**). Frontend
+no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4. Nota: la garantía end-to-end "append evento hoy → aparece en timeline del día-UTC" no se puede testear con un rango
+SQL real (sin DB en los tests: aiosqlite ausente + columnas UUID Postgres-only, y prohibido tocar `uv.lock`); queda cubierta por
+composición (rango naive-UTC verificado + `utcnow_naive()` en escritura, ambos con test unitario).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El gap era de cobertura interna a Micelia → resuelto con tests, sin
+decisión cross-project. Sigue abierta **DP-9** (paginación con total global en el panel, Ciclo 46), **DP-8** (canela sin `version`
+en health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand
+env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 49):** contrato de eventos auditado extremo a extremo en request/response/query-filters/read-shapes/stats-semantics/
+timeline-timezone (Ciclos 43–48). Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de
+`GET /api/v1/events/by-correlation/{id}`** — el endpoint tipa `correlation_id: UUID` (FastAPI valida/coacciona el path) y
+`get_by_correlation` filtra `IdmEventModel.correlation_id == correlation_id`; verificar (a) que el tipo de la columna
+`correlation_id` casa con el `UUID` que llega (¿coerción str↔UUID en el WHERE como en el filtro de `query_events`?), y (b) que el
+shape `{correlation_id, events, count}` que devuelve casa con lo que `eventsApi.byCorrelation()` del panel espera (Ciclo 46 lo dio
+como `{events}`, subconjunto OK — reconfirmar que no quedó ningún hook latente leyendo `correlation_id`/`count` del wrapper).
+Alternativa a cobertura: `cli.py`/`main.py` vía subprocess (techo de bajo riesgo). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 47 (COHERENCIA INTER-PROYECTO #13: audita la **semántica de `GET /api/v1/events/stats` → `by_source`** ahora que el panel (Ciclo 46) lo tipa con los 6 sources canónicos — ¿`get_stats` agrupa por el `source` crudo de la BD, que podría incluir el legacy `idm-core` sin normalizar, apareciendo como un bucket separado en el panel? **CONCLUSIÓN: SIN drift en `by_source`** — la normalización `idm-core`→`micelia` ocurre en el **único punto de escritura** (`append_event`, el único `session.add(IdmEventModel)` de todo `app/`), así que la BD **nunca almacena `idm-core`** y `get_stats` agrupa siempre sobre sources ya normalizados; el panel jamás recibe un bucket legacy. **Gap adyacente encontrado y corregido:** la normalización era **write-only** — el filtro `source` de `query_events` NO normalizaba → `GET /events?source=idm-core` devolvía `[]` mientras los mismos eventos legacy aparecían bajo `source=micelia` (asimetría write/read en la ventana de deprecación). Deliverable Micelia-only: **`_normalize_source()` extraído como punto de verdad único (DRY)** usado en escritura (con warning) y en el filtro de lectura (silencioso) · +10 tests · verify verde 1473 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 46 (1463 pass, cov 93.11%) → no aplica prioridad #1 (red→green). Ciclo 46
