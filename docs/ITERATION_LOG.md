@@ -16,6 +16,65 @@
 
 ---
 
+## 2026-07-14 — Ciclo 58 (**TERCER DRIFT REAL del eje de contratos — primero de ESCRITURA/POST — y se ARREGLA**: sigo la recomendación (B) de C57 (auditar contratos de escritura que el panel envía vs los `BaseModel` del backend, eje aún no recorrido; NO tomo (A) porque depende de aprobar DP-10, decisión de Jessicache no disponible en ejecución autónoma). Barrido de todos los POST/PATCH del panel (`frontend/src/lib/api.ts`) vs sus modelos backend. **`agentsApi` escritura SIN drift**: `createCrew` `{name,agents,workflow}` == `CrewCreate` (`agents.py:27`); `execute` `{prompt_id,workflow?}` ⊂ `ExecuteRequest` (superset con `crew_id?`). `promoteToSkill` `{name,trigger_pattern}` == `PromptPromoteToSkill`. **PERO `promoteToList` — DRIFT REAL con 422**: el panel (`api.ts:351`, usado por `usePrompts.ts:204`) hace POST `/prompts/{id}/promote/list` con body **`{ slug }`**, pero `PromptPromoteToList` (`prompts.py:67`) **requería `list_slug`** y el handler lee `data.list_slug` (`prompts.py:337`). Efecto en el panel real: el botón **"promover a lista" SIEMPRE daba 422** (`list_slug` ausente + `slug` ignorado como extra por Pydantic). El test backend **enmascaraba** el drift: `test_promote_to_list_ok` (`test_api_prompts_codex.py:360`) envía `{"list_slug":"ideas"}` (la clave del backend), no la del panel. Mismo patrón que C56 (mcp name/status) y C57 (agents steps), ahora en el eje de escritura. Decisión idéntica: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `validation_alias=AliasChoices("list_slug","slug")` acepta ambas claves; atributo Python `list_slug`, handler y `test_promote_to_list_ok` intactos. **+1 test `test_promote_to_list_accepts_panel_slug_key` + constante `PANEL_PROMOTE_TO_LIST_KEY="slug"`** que envía la clave del panel, asserta 200 y que el slug llega intacto al store. Verify verde 1485 pass (+1) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de C57 (1484 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C57 dejó
+**agotado el eje de LECTURA** del panel (prompts/skills/mcp/agents auditados C52–C57) y recomendó dos caminos: **(A)** añadir
+`response_model` a los GET (gated por DP-10, decisión de Jessicache) o **(B)** auditar los contratos de **escritura/POST**
+(payloads que el panel envía vs `BaseModel` del backend), eje virgen. En ejecución autónoma **no tomo (A)** (depende de una
+DECISIÓN PENDIENTE humana) → **tomo (B)**. Trabajo sobre código propio de Micelia (`app/api/v1/prompts.py` + su test); sin tocar
+infra, `.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (fuente de verdad = payload JSON que el panel serializa vs el `BaseModel` que valida el endpoint):**
+- **`agentsApi` (escritura) — SIN drift:** `createCrew({name,agents,workflow})` casa 1:1 con `CrewCreate` (`agents.py:27`);
+  `execute({prompt_id,workflow?})` es subconjunto de `ExecuteRequest` (backend acepta además `crew_id?` → superset, el panel omite).
+- **`promoteToSkill` — SIN drift:** `{name,trigger_pattern}` == `PromptPromoteToSkill` (`prompts.py:71`).
+- **`promoteToList` — DRIFT REAL (422):** el panel envía **`{ slug }`** (`api.ts:350-351`), el hook `usePrompts.ts:204` lo llama con
+  el slug de la lista destino; el backend requería **`list_slug`** (campo obligatorio, sin default) → Pydantic v2: `list_slug`
+  ausente = **422 Unprocessable Entity**, y `slug` se descarta como extra. El botón de promover a lista del panel nunca funcionaba.
+- **Test que enmascaraba el drift:** `test_promote_to_list_ok`/`_not_found` mandan `{"list_slug":...}` (clave backend), fijando el
+  contrato del serializador, no el payload real del panel — por eso el drift vivía sin cazar (igual que en C56/C57).
+
+**Hecho (1 commit atómico `fix(prompts)` `80f7c1e`):**
+- **Fix producción (`prompts.py`):** `import AliasChoices`; `PromptPromoteToList.list_slug` pasa a
+  `Field(..., validation_alias=AliasChoices("list_slug","slug"))`. Acepta la clave del panel (`slug`) **y** la histórica
+  (`list_slug`) simultáneamente; el atributo Python sigue siendo `list_slug`, así que el handler (`store.promote_to_list(id,
+  data.list_slug)`) y los tests existentes no cambian. **Additivo**: 0 regresión.
+- **Regresión (`test_api_prompts_codex.py`):** constante módulo-nivel **`PANEL_PROMOTE_TO_LIST_KEY = "slug"`** (documenta la clave del
+  panel) + `test_promote_to_list_accepts_panel_slug_key`: POST con `{slug:"ideas"}`, asserta **200** + `ref="ideas"` + que
+  `store.promote_to_list` recibió `"ideas"` en 2º posicional (el alias mapea slug→list_slug intacto). **Mutación:** quitar el alias
+  hace 422 → el test falla nombrando la clave del panel. Espejo de los guards `PANEL_*` de C56/C57.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_PROMOTE_TO_LIST_KEY` módulo-nivel evita N806),
+typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓ (**1485 pass** + 2 skip, era 1484 en C57: **+1**), cov ✓ (**93.13%**, ≥ gate
+**92**). Frontend **no tocado**: el alias hace funcional el payload que el panel YA envía, sin necesidad de redeploy del frontend
+(mismo criterio que C56/C57 — se arregla el backend para honrar lo que el panel espera). Sin procesos residuales (tests in-process,
+sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix
+hace funcional el botón "promover a lista"** que daba 422 — tercer flujo de panel reparado en 3 ciclos); (2) actualizar
+`Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con TERCERA evidencia dura, ahora desde el eje de
+escritura:** `promote/list` valida con `BaseModel` pero el nombre del campo drifteó respecto al panel sin que nada lo cazara en
+runtime — y los API-tests que codifican la clave *backend* (no la del panel) lo enmascararon. Con C56 (name/status), C57 (steps) y
+C58 (slug/list_slug), **tres flujos de panel rotos en tres ciclos** por drift no blindado. Nota para (A): un `response_model` blinda
+la *respuesta*, pero este caso es de *request* — sugiere que DP-10, si se aprueba, debería cubrir también **tests de contrato que
+usen exactamente el payload del panel** (no solo la clave canónica del backend). Siguen abiertas **DP-10** (blindaje de contratos
+crudos), **DP-9** (paginación con total global), **DP-8** (canela sin `version`), **DP-7** (namespace `idm/vital/micelia`), **DP-6**
+(`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 59):** el eje de **escritura/POST** queda iniciado y con su primer drift real cazado. Continuar el barrido de
+escritura sobre los payloads aún no auditados campo-a-campo: `promptsApi.create` `{content,category?,priority?,tags?,scheduled_at?,
+prefer_paid?}` vs `PromptCreate` (¿`metadata`/`parent_prompt_id` que el panel nunca envía? superset backend — verificar), `update`
+`Partial<Prompt>` vs `PromptUpdate` (¿el panel manda campos que `PromptUpdate` no acepta y se pierden silenciosamente?),
+`classifyPrompt` `{category?,tags?}` vs `PromptClassify` (backend exige `category` **sin default** → ¿422 si el panel lo omite?
+**candidato caliente**, revisar primero), `createList`/`updateList`, `skillsApi.create`/`update`, `mcpApi.generate`. Un endpoint por
+commit, test con el payload EXACTO del panel (no la clave backend). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 57 (**SEGUNDO DRIFT REAL del eje de contratos, mismo patrón que C56 — y se ARREGLA**: sigo la recomendación (A) de C56 y aplico la metodología de contrato a `agentsApi` → `interface AgentCrew`/`AgentRun` (`frontend/src/lib/api.ts:485,493`), con "ojo especial a `status` y campos anidados" como pedía C56. **`AgentCrew` SIN drift** (superset): `create_crew`/`list_crews` (`app/services/agents/crew_manager.py:86`) emiten los 5 campos del panel `crew_id,name,agents,workflow,created_at` **+2 extras inertes** `run_count,last_run_at`. **`AgentRun` detalle SIN drift** (`GET /agents/runs/{id}` → `get_run` devuelve el `run_record` crudo del engine, `workflow_engine.py:273`, superset con `final_output`/`total_*` inertes; los `steps` anidados son superset de `{agent,status,output?,duration_ms?}`). **PERO `AgentRun` en la LISTA — DRIFT REAL con crash**: `GET /agents/runs` (`list_runs`, `agents.py:175`) **re-proyectaba** cada run a `step_count:int` **OMITIENDO `steps[]`**. El panel de agents (`frontend/src/app/agents/page.tsx`) **NO llama a `getRun`** — lee `run.steps` **directamente sobre los items de `agentsApi.runs()`** en DOS sitios: (1) `WorkflowsSection.getActiveStepIndex` (línea 75) hace `run.steps.findIndex(s => s.status==='running')` sobre `activeRuns` (runs con status `running`) → **TypeError `findIndex` of undefined** en cuanto hay un run activo; (2) `RunHistorySection` al expandir un run (líneas 445-447) hace `run.steps.length`/`.map` → **TypeError `length` of undefined** al expandir. Decisión idéntica a C56: código propio de Micelia (`app/api/v1/`), `fix:` que el panel necesita (prioridad #4 coherencia). Fix **additivo**: `list_runs` pasa `steps` a través (`r.get("steps", [])`, igual que `get_run`) manteniendo `step_count` como extra inerte. **+1 test regresión `test_list_runs_covers_panel_agentrun_contract` + constante `PANEL_AGENTRUN_FIELDS`** (7 campos de `interface AgentRun`) y **actualizado** `test_list_runs_happy_projection` (que codificaba el drift: asertaba `steps` ausente). Verify verde 1484 pass (+1) · cov 93.13% · gate 92 sin cambio · `agents.py`+`workflow_engine.py` 100% cov)
 
 **Contexto:** `make verify` VERDE al cierre de C56 (1483 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C56 recomendó (A)
