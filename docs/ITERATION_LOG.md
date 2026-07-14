@@ -16,6 +16,65 @@
 
 ---
 
+## 2026-07-14 — Ciclo 45 (COHERENCIA INTER-PROYECTO #11: audita el **contrato de query de `GET /api/v1/events`** — los filtros que el endpoint `list_events` acepta vs lo que `EventStore.query_events` realmente soporta y lo que el shape de respuesta (`_event_to_dict`) devuelve. **DRIFT ENCONTRADO:** el filtro **`subcategory`** estaba soportado de punta a punta en el store (`query_events` lo filtra, `append_event`/`_event_to_dict` lo persisten y serializan) y hasta el mock e2e lo imitaba, pero el **endpoint lo descartaba en silencio** → imposible filtrar por subcategoría vía REST pese a estar soportado end-to-end. Además el modelo **`EventQuery` era código muerto** (nunca instanciado por el endpoint ni por FastAPI) que declaraba ese mismo `subcategory` que el endpoint no honraba: documentaba un contrato que la capa de destino no enforzaba (mismo antipatrón que Ciclos 43–44). Deliverable Micelia-only: **`list_events` gana el param `subcategory` y lo reenvía a `query_events`** + **eliminado `EventQuery` muerto** (el contrato de query real es la firma del endpoint, de ahí sale el OpenAPI) · +1 test forwarding + asserts en happy-path/defaults · verify verde 1463 pass · cov 93.11% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 44 (1462 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 44
+recomendó seguir en **coherencia inter-proyecto (#4)** auditando el **contrato de `GET /api/v1/events` y sus filtros de query**
+(`EventQuery`) vs lo que `EventStore.query_events` soporta y el shape de cada evento devuelto. Trabajo sobre código propio de
+Micelia (`app/api/v1/events.py` + su test); sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = `EventStore.query_events` + `_event_to_dict` + consumidores):**
+- **Qué acepta el endpoint (antes):** `list_events` (`events.py:116`) tomaba `category, source, event_type, since, until,
+  limit, offset` (7 params) y los reenviaba a `query_events`. **`subcategory` NO estaba** ni como param ni en el forward.
+- **Qué soporta el store:** `EventStore.query_events` (`store.py:182`) filtra por **8 campos** incluyendo **`subcategory`**
+  (`store.py:203`: `IdmEventModel.subcategory == subcategory`) y también `user_id` (no expuesto por REST, uso interno).
+  `_event_to_dict` (`store.py:304`) serializa `subcategory` y —desde Ciclo 43— `correlation_id` en cada evento devuelto.
+- **Qué esperan los consumidores:** el mock e2e `_query` (`tests/e2e/test_event_lifecycle.py:119-135`) **imita explícitamente**
+  el filtrado por `subcategory` de `query_events`, y el contrato e2e `contracts.py:291` incluye `subcategory`. Frontend Next.js:
+  sin llamadas directas a `/api/v1/events` encontradas (panel aún no consume este filtro). Los 5 SDK de dominio publican
+  eventos (POST), no los consultan (GET) → el consumidor natural de este filtro es el panel/lecturas analíticas.
+- **DRIFT ENCONTRADO (interno a Micelia, feature parcialmente muerta):** el store filtra por `subcategory`, `_event_to_dict`
+  lo devuelve y el mock e2e lo imita, **pero el endpoint no lo cableaba** → ningún cliente REST podía filtrar por subcategoría.
+  Ni el happy-path unit ni el e2e lo cazaban porque ninguna llamada GET pasaba `subcategory` (no podía llegar al store).
+- **Código muerto asociado:** el modelo `EventQuery` (`events.py:18`) declaraba los 8 filtros —incluido `subcategory`— pero
+  **no lo usaba nadie**: FastAPI genera el OpenAPI de este endpoint desde la firma de `list_events`, no desde un `BaseModel`.
+  Era un contrato paralelo documentado que el endpoint no honraba → exactamente la fuente del drift.
+
+**Hecho (1 commit atómico `feat(events)` `8d74f2d`):**
+- `list_events` gana el parámetro **`subcategory: Optional[str] = None`** y lo **reenvía a `query_events`** → el filtro queda
+  soportado end-to-end vía REST (aditivo, retrocompatible; un cliente que no lo mande sigue igual). Docstring que ancla el
+  contrato de query auditado.
+- **Eliminado el modelo `EventQuery`** (código muerto). El contrato de query real es la firma del endpoint (de ahí sale el
+  OpenAPI); mantener un modelo paralelo sin usar solo invita a volver a divergir (como pasó con `subcategory`). Comentario
+  que documenta la decisión.
+- **+1 test** `test_list_events_forwards_subcategory` (el param llega a `query_events`), `subcategory` añadido al happy-path
+  `test_list_events_happy_echoes_and_forwards_filters` y assert `subcategory is None` en `test_list_events_defaults_no_filters`.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1463 pass** + 2 skip, era 1462 en Ciclo 44: **+1** test neto), cov ✓ (**93.11%**, ≥ gate **92**; leve baja de 93.12→93.11
+por eliminar las líneas cubiertas de `EventQuery` mientras se añade 1 statement al endpoint). Frontend no tocado. Sin procesos
+residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Nota menor de coherencia observada (NO tomada): `query_events`
+soporta un filtro **`user_id`** que el endpoint REST tampoco expone; NO se cablea porque no hay consumidor identificado y la
+semántica de `user_id` en el pipeline sigue abierta (**DP-6**); si el panel llegara a necesitar filtrar eventos por usuario,
+evaluar exponerlo entonces. Siguen abiertas **DP-8** (canela no emite `version` en health-check), **DP-7** (namespace de canal
+`idm/vital/micelia`), **DP-6** (semántica de `user_id`), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 46):** contrato de eventos REST auditado casi completo — request (Ciclo 43), response del POST (Ciclo 44) y
+filtros del GET (Ciclo 45) ya alineados endpoint↔store. Siguiente en **coherencia inter-proyecto (#4)**: auditar los **otros
+tres endpoints de lectura de eventos** — `GET /events/timeline/{date}`, `GET /events/by-correlation/{id}` y `GET /events/stats`
+— vs `EventStore.get_timeline/get_by_correlation/get_stats`: ¿el shape que devuelven (`get_stats` sobre todo, con su agregación
+por categoría/source) coincide con lo que el panel Next.js espera renderizar?, ¿`timeline` respeta el mismo `_event_to_dict`
+con `correlation_id`? Alternativa a cobertura: `cli.py`/`main.py` vía subprocess (techo de bajo riesgo). No tocar infra,
+`.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 44 (COHERENCIA INTER-PROYECTO #10: audita el **contrato de RESPUESTA** de `POST /api/v1/events` — qué shape devuelve Micelia (`{event_id, status:"created", timestamp}`) vs qué leen realmente los 5 SDK de dominio de esa respuesta. **Resultado: SIN drift** — biohack/cybertools leen `data.get("event_id")` cuando `status_code in (200,201)` (`vital_sdk/client.py`), canela/codking hacen `resp.raise_for_status()` (aceptan cualquier 2xx) y devuelven el dict entero, auto-mat-ion publica por Redis (fuera del contrato REST). El `event_id` que biohack/cybertools consumen siempre está presente. Hallazgo estructural: **el endpoint devolvía un dict SIN `response_model`** → el shape que los SDK consumen no estaba fijado en runtime ni publicado en el OpenAPI (mismo antipatrón que Ciclos 42–43: contrato conocido que la capa de destino no enforza). Deliverable Micelia-only: **`EventCreateResponse` declarado como `response_model`** del POST, alineado con el mock e2e `EventCreated` · +1 test que fija `{event_id(UUID), status, timestamp}` sin claves extra · verify verde 1462 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 43 (1461 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 43
