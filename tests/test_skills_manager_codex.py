@@ -16,6 +16,24 @@ import app.services.skills_manager as sm_module
 from app.models.prompt import SkillModel
 from app.services.skills_manager import SkillsManager, get_skills_manager
 
+# Fuente de verdad: los 10 campos EXACTOS de `interface Skill`
+# (frontend/src/lib/api.ts:427) que el panel consume vía skillsApi.list()/get().
+# Si _skill_to_dict dropea/renombra cualquiera, el guard de contrato falla.
+PANEL_SKILL_FIELDS = frozenset(
+    {
+        "skill_id",
+        "name",
+        "slug",
+        "description",
+        "trigger_pattern",
+        "prompt_template",
+        "is_active",
+        "usage_count",
+        "created_at",
+        "updated_at",
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -326,6 +344,22 @@ def test_skill_to_dict_with_updated_at(manager):
     d = manager._skill_to_dict(skill)
     assert d["updated_at"] == ts.isoformat()
     assert d["usage_count"] == 0  # None → 0
+
+
+def test_skill_to_dict_covers_panel_skill_contract(manager):
+    """Guard de contrato micelia↔panel: _skill_to_dict debe emitir TODOS los campos
+    que el panel consume vía `interface Skill` (frontend/src/lib/api.ts:427).
+
+    Las aserciones existentes solo cubren 6 de los 10 campos del panel (name, slug,
+    is_active, usage_count, updated_at, metadata); un drop/rename de los otros 4
+    —skill_id (key de React en la lista), description, trigger_pattern,
+    prompt_template, created_at— rompería skillsApi.list()/get() pasando el verify.
+    Espejo de test_prompt_to_dict_covers_panel_prompt_contract (Ciclo 52) y
+    test_list_to_dict_covers_panel_list_contract (Ciclo 54).
+    """
+    result = manager._skill_to_dict(_make_skill())
+    missing = PANEL_SKILL_FIELDS - result.keys()
+    assert not missing, f"_skill_to_dict dropea/renombra campos del panel: {missing}"
 
 
 # ---------------------------------------------------------------------------
