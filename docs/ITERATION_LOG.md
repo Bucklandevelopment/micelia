@@ -16,6 +16,68 @@
 
 ---
 
+## 2026-07-14 — Ciclo 47 (COHERENCIA INTER-PROYECTO #13: audita la **semántica de `GET /api/v1/events/stats` → `by_source`** ahora que el panel (Ciclo 46) lo tipa con los 6 sources canónicos — ¿`get_stats` agrupa por el `source` crudo de la BD, que podría incluir el legacy `idm-core` sin normalizar, apareciendo como un bucket separado en el panel? **CONCLUSIÓN: SIN drift en `by_source`** — la normalización `idm-core`→`micelia` ocurre en el **único punto de escritura** (`append_event`, el único `session.add(IdmEventModel)` de todo `app/`), así que la BD **nunca almacena `idm-core`** y `get_stats` agrupa siempre sobre sources ya normalizados; el panel jamás recibe un bucket legacy. **Gap adyacente encontrado y corregido:** la normalización era **write-only** — el filtro `source` de `query_events` NO normalizaba → `GET /events?source=idm-core` devolvía `[]` mientras los mismos eventos legacy aparecían bajo `source=micelia` (asimetría write/read en la ventana de deprecación). Deliverable Micelia-only: **`_normalize_source()` extraído como punto de verdad único (DRY)** usado en escritura (con warning) y en el filtro de lectura (silencioso) · +10 tests · verify verde 1473 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 46 (1463 pass, cov 93.11%) → no aplica prioridad #1 (red→green). Ciclo 46
+recomendó auditar la semántica de `by_source` en `get_stats`. Trabajo sobre código propio de Micelia (`app/events/store.py` +
+su test); sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = todos los caminos de escritura de eventos + `get_stats`):**
+- **`get_stats` agrupa por `source` de la BD:** `select(source, count).group_by(source)` → `dict(rows)` (`store.py`), sin
+  normalización en la agregación. La pregunta de Ciclo 46: ¿podría un `idm-core` legacy colarse como bucket separado?
+- **Único punto de escritura:** grep confirmó que el **único `session.add()` de un `IdmEventModel`** en todo `app/` está dentro
+  de `append_event` (`store.py`). Los 5 callers (`security.py` ×2, `gateway.py`, `events.py` REST, `prompt_executor.py`) pasan
+  todos por ahí. `append_event` **normaliza `idm-core`→`micelia` ANTES de persistir** (test existente
+  `test_append_event_legacy_source_normalized_with_warning` lo prueba: el objeto añadido a la sesión tiene `source=='micelia'`).
+- **CONCLUSIÓN — `by_source` SEGURO (sin drift):** como la BD nunca almacena `idm-core`, `get_stats.by_source` nunca puede
+  contener ese bucket; el evento legacy suma bajo `micelia`. El `EventStatsResponse.by_source` del panel (mapa `{source: n}`,
+  Ciclo 46) tolera además cualquier clave (los sources custom de SDK externos siguen siendo `str` libre, por diseño). **No
+  requiere cambio en el lado de stats.** Mismo tipo de hallazgo "sin drift" que Ciclo 44.
+- **GAP ADYACENTE (asimetría write/read):** la normalización vivía SOLO en la escritura. El filtro `source` de `query_events`
+  (`store.py`) hacía `IdmEventModel.source == source` con el string crudo → una consulta `GET /api/v1/events?source=idm-core`
+  (el filtro `source` ya estaba expuesto por REST) buscaba literalmente `'idm-core'`, que **nunca está en la BD** → devolvía
+  `[]`, mientras los MISMOS eventos legacy sí aparecen filtrando `source=micelia`. Un consumidor que aún use el valor deprecado
+  en una query obtiene cero resultados en silencio. Mismo antipatrón de fondo (una capa —el filtro de lectura— no aplica una
+  regla que la otra —la escritura— sí).
+
+**Hecho (1 commit atómico `fix(events)` `bad8a57`):**
+- Extraído **`_normalize_source(source, *, warn=True)`** a nivel de módulo (`store.py`) como **punto de verdad único** de la
+  regla `idm-core`→`micelia`, con constantes `_LEGACY_SOURCE`/`_CANONICAL_SOURCE`. `None` pasa sin tocar (filtro ausente).
+- `append_event` ahora llama a `_normalize_source(source)` (mantiene el `DeprecationWarning` en el ingest; se elimina el bloque
+  inline duplicado → DRY).
+- `query_events` normaliza el filtro con `_normalize_source(source, warn=False)` (silencioso: no spamear warnings por cada
+  query; el aviso de deprecación se emite donde importa, en la escritura). Cierra la asimetría write/read.
+- **+10 tests:** `TestNormalizeSource` (legacy→micelia con y sin warning; los 6 sources canónicos intactos vía `parametrize`;
+  `None` passthrough) + `test_query_events_normalizes_legacy_source_filter` (compila la SQL del `execute` y asserta que contiene
+  `'micelia'` y NO `'idm-core'`). Cambio **aditivo y retrocompatible**: solo altera el comportamiento del valor deprecado
+  `idm-core` (que antes en lectura no encontraba nada útil).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1473 pass** + 2 skip, era 1463 en Ciclo 46: **+10** tests), cov ✓ (**93.12%**, ≥ gate **92**; el helper añade statements
+cubiertos por los nuevos tests). Frontend no tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway
+ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4. Nota: no hay DB real en los tests (aiosqlite ausente + columnas UUID Postgres-only) → la garantía end-to-end
+"append idm-core → by_source muestra micelia" no se puede testear con un GROUP BY real sin añadir dependencias (prohibido tocar
+`uv.lock`); queda cubierta por composición (write normaliza + read normaliza, ambos con test unitario).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El gap era interno a Micelia (regla de normalización aplicada en una
+sola capa) → resuelto en código, sin decisión cross-project. Sigue abierta **DP-9** (paginación con total global en el panel,
+Ciclo 46), **DP-8** (canela sin `version` en health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 48):** contrato de eventos auditado en request/response/query-filters/read-shapes/stats-semantics (Ciclos 43–47).
+Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de `GET /events/timeline/{date}`** — el endpoint parsea la
+fecha con `datetime.strptime(date, "%Y-%m-%d")` (naive) y `get_timeline` construye `[start, start+1día)` con `datetime.combine`;
+verificar la coherencia de **timezone** (los `timestamp` se persisten con `utcnow_naive()`, ¿el rango del timeline usa la misma
+referencia naive-UTC o hay riesgo de desalineación de día por TZ local?) y si el shape `{date, events, count}` que devuelve casa
+con lo que `eventsApi.timeline()` del panel espera (hoy `{events}`, subconjunto OK). Alternativa a cobertura: `cli.py`/`main.py`
+vía subprocess (techo de bajo riesgo). No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 46 (COHERENCIA INTER-PROYECTO #12: audita los **endpoints de lectura de eventos** (`GET /events`, `/events/stats`, `/events/timeline/{date}`, `/events/by-correlation/{id}`) vs **lo que el panel Next.js declara consumir** (`frontend/src/types/api.ts`, `lib/api.ts`, hooks, mock MSW). **DRIFT ENCONTRADO frontend↔backend (latente + enmascarado por la mock):** el panel declaraba `GET /events` → `{events, total, page}` cuando el backend devuelve `{events, count, limit, offset}` (`total`/`page` NO existen → `useInfiniteIdmEvents` leía `lastPage.total` inexistente = paginación rota), y `eventsApi.stats()` esperaba `{total, by_category}` plano cuando el backend anida `{period_days, since, stats:{total_events, by_category, by_source}}`. La mock MSW replicaba el shape ERRÓNEO → ocultaba el drift; solo `useIdmEvents`→`EventTimeline` (lee `data.events`) está renderizado, el resto es latente → ningún test/runtime lo cazaba. `IdmEvent` (evento suelto) SÍ coincide 1:1 con `_event_to_dict` (14 campos incl. `correlation_id`+`subcategory`) → **sin drift ahí** (confirma que las lecturas están bien tipadas). Deliverable Micelia-only: **alinear el contrato del panel a las respuestas reales del backend** (tipos + cliente + hook de paginación + mock MSW), la mock deja de enmascarar el drift · frontend-lint verde (eslint+tsc) · backend verify sin cambios 1463 pass cov 93.11%)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 45 (1463 pass, cov 93.11%) → no aplica prioridad #1 (red→green). Ciclo 45
