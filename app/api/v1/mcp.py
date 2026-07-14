@@ -34,7 +34,11 @@ class ToolDefinition(BaseModel):
 
 class GenerateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, pattern=r'^[a-z0-9][a-z0-9_-]*$')
-    description: str = Field(..., min_length=1, max_length=500)
+    # Optional para honrar el form del panel (MCPGenerateForm en skills/page.tsx):
+    # el <input> de descripcion NO es `required` y handleSubmit solo exige name+tools,
+    # asi que puede enviar description="". min_length=1 daba 422. Consistente con
+    # SkillCreate.description (C60). max_length intacto.
+    description: str = Field(default="", max_length=500)
     tools: List[ToolDefinition] = Field(..., min_length=1)
     language: str = Field(default="python", pattern=r'^(python|typescript)$')
 

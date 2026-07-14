@@ -31,6 +31,18 @@ GENERATE_PAYLOAD = {
     "language": "python",
 }
 
+# Payload EXACTO que envia MCPGenerateForm (frontend/src/app/skills/page.tsx) cuando
+# el usuario deja la descripcion en blanco: el <input> de description NO es `required`
+# y handleSubmit solo exige name + al menos un tool con nombre. Antes daba 422
+# (string_too_short) porque GenerateRequest.description usaba min_length=1. Espejo del
+# guard PANEL_CREATE_SKILL_NO_DESCRIPTION de C60.
+PANEL_GENERATE_NO_DESCRIPTION = {
+    "name": "my-mcp-server",
+    "description": "",
+    "tools": [{"name": "fetch", "description": ""}],
+    "language": "python",
+}
+
 
 def build_app() -> FastAPI:
     """Build a FastAPI app with only the MCP router mounted."""
@@ -144,6 +156,24 @@ async def test_generate_ok(monkeypatch):
         tools=[{"name": "fetch", "description": "", "parameters": []}],
         language="python",
     )
+
+
+async def test_generate_accepts_panel_empty_description(monkeypatch):
+    """El form del panel puede enviar description="" (input no `required`).
+
+    Antes daba 422 (min_length=1); ahora debe dar 200 y propagar "" al generador
+    sin coercion. Mutacion: restaurar Field(..., min_length=1) vuelve a 422 y este
+    test falla nombrando el payload del panel.
+    """
+    gen = fake_generator()
+    patch_generator(monkeypatch, gen)
+    async with client_for(build_app()) as ac:
+        resp = await ac.post(
+            "/api/v1/mcp/generate", json=PANEL_GENERATE_NO_DESCRIPTION, headers=AUTH
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"server_id": "srv-1", "path": "/tmp/srv-1"}
+    assert gen.generate.call_args.kwargs["description"] == ""
 
 
 async def test_generate_value_error_400(monkeypatch):
