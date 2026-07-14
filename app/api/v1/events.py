@@ -15,16 +15,12 @@ from app.core.security import verify_auth
 router = APIRouter(prefix="/events", dependencies=[Depends(verify_auth)])
 
 
-class EventQuery(BaseModel):
-    """Parámetros de búsqueda de eventos"""
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
-    source: Optional[str] = None
-    event_type: Optional[str] = None
-    since: Optional[datetime] = None
-    until: Optional[datetime] = None
-    limit: int = 100
-    offset: int = 0
+# NOTA (Ciclo 45): el antiguo modelo `EventQuery` se eliminó. Era código muerto
+# —nunca instanciado por el endpoint ni por FastAPI— que declaraba un filtro
+# `subcategory` que `GET /api/v1/events` no cableaba: documentaba un contrato que
+# la capa de destino no honraba. El contrato de query real es la firma de
+# `list_events` (de ahí sale el OpenAPI). Se evita mantener un modelo paralelo
+# que vuelva a divergir del endpoint.
 
 
 class EventCreate(BaseModel):
@@ -117,6 +113,7 @@ class EventCreateResponse(BaseModel):
 async def list_events(
     request: Request,
     category: Optional[str] = None,
+    subcategory: Optional[str] = None,
     source: Optional[str] = None,
     event_type: Optional[str] = None,
     since: Optional[datetime] = None,
@@ -126,6 +123,15 @@ async def list_events(
 ):
     """
     Lista eventos con filtros opcionales.
+
+    La firma de este endpoint ES el contrato de query publicado en el OpenAPI
+    (FastAPI genera el esquema desde los parámetros, no desde ningún modelo
+    aparte). Filtros soportados 1:1 por `EventStore.query_events`:
+    `category, subcategory, source, event_type, since, until, limit, offset`.
+    `subcategory` se cableó en Ciclo 45: el store ya lo filtraba
+    (`store.py::query_events`) y `_event_to_dict` lo serializa, pero el endpoint
+    lo descartaba en silencio → era imposible filtrar por subcategoría vía REST
+    pese a estar soportado de punta a punta (mismo antipatrón que Ciclos 43–44).
     """
     event_store = request.app.state.event_store
 
@@ -134,6 +140,7 @@ async def list_events(
 
     events = await event_store.query_events(
         category=category,
+        subcategory=subcategory,
         source=source,
         event_type=event_type,
         since=since,

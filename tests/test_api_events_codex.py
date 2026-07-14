@@ -111,6 +111,7 @@ async def test_list_events_happy_echoes_and_forwards_filters():
             "/api/v1/events",
             params={
                 "category": "health",
+                "subcategory": "vitals",
                 "source": "biohack",
                 "event_type": "health.vitals.create",
                 "since": since,
@@ -127,12 +128,26 @@ async def test_list_events_happy_echoes_and_forwards_filters():
     assert data["offset"] == 5
     kwargs = store.query_events.call_args.kwargs
     assert kwargs["category"] == "health"
+    assert kwargs["subcategory"] == "vitals"
     assert kwargs["source"] == "biohack"
     assert kwargs["event_type"] == "health.vitals.create"
     assert kwargs["limit"] == 50
     assert kwargs["offset"] == 5
     assert kwargs["since"] == datetime.fromisoformat(since)
     assert kwargs["until"] == datetime.fromisoformat(until)
+
+
+async def test_list_events_forwards_subcategory():
+    """Ciclo 45: el filtro `subcategory` (soportado por EventStore.query_events
+    y serializado por _event_to_dict) ahora se cablea end-to-end desde el
+    endpoint — antes se descartaba en silencio pese a estar soportado."""
+    store = fake_store(query_events=[{"id": "s1"}])
+    async with client_for(build_app(store)) as ac:
+        resp = await ac.get(
+            "/api/v1/events", params={"subcategory": "sleep"}, headers=AUTH
+        )
+    assert resp.status_code == 200
+    assert store.query_events.call_args.kwargs["subcategory"] == "sleep"
 
 
 async def test_list_events_defaults_no_filters():
@@ -144,6 +159,7 @@ async def test_list_events_defaults_no_filters():
     assert data == {"events": [], "count": 0, "limit": 100, "offset": 0}
     kwargs = store.query_events.call_args.kwargs
     assert kwargs["category"] is None and kwargs["since"] is None
+    assert kwargs["subcategory"] is None
 
 
 async def test_list_events_limit_over_cap_422():
