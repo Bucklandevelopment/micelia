@@ -16,6 +16,63 @@
 
 ---
 
+## 2026-07-14 — Ciclo 49 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `GET /api/v1/events/by-correlation/{id}`** — (a) ¿el tipo de la columna `correlation_id` casa con el `UUID` que llega, o hay coerción str↔UUID en el WHERE como en el filtro `source` de `query_events`?; (b) ¿el shape `{correlation_id, events, count}` casa con lo que `eventsApi.byCorrelation()` del panel espera? **CONCLUSIÓN: SIN drift** — (a) la columna es `PGUUID(as_uuid=True)` (mapea `uuid.UUID` nativo) y el endpoint tipa `correlation_id: UUID` → FastAPI coacciona el path str→`UUID` (test existente `test_by_correlation_invalid_uuid_422` prueba 422 en inválido); el WHERE `IdmEventModel.correlation_id == correlation_id` compara **UUID-vs-UUID**, no str-vs-str como el filtro `source` → NO hay coerción str↔UUID (verificado compilando la SQL: el bind es el **hex canónico** `'12345678...'`, la forma real de UUID). (b) backend devuelve `{correlation_id, events, count}`; `byCorrelation()` (`lib/api.ts:223`) tipa `{ events: IdmEvent[] }` y **ningún componente** consume `byCorrelation` fuera de la definición del cliente (grep) → superset OK, sin hook latente leyendo `correlation_id`/`count` (reconfirma Ciclo 46). **Gap adyacente encontrado (cobertura, no correctitud):** los 2 tests de `get_by_correlation` NO asertaban ni el WHERE ni el ORDER BY → dos garantías del contrato quedaban sin blindar: (1) que el filtro ligue el UUID exacto, (2) que el orden sea `timestamp` **ASCENDENTE** —traza cronológica del flujo—, a diferencia de `query_events` que ordena `.desc()`; un cambio futuro a `.desc()` invertiría en silencio las trazas de workflow. Deliverable Micelia-only: **+1 test compile-SQL** que asserta el bind hex exacto del UUID y `ORDER BY timestamp` sin `DESC` (mismo patrón `literal_binds` de Ciclos 47/48) · verify verde 1476 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 48 (1475 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 48
+recomendó auditar el contrato de `GET /events/by-correlation/{id}` (coerción de tipo + shape). Trabajo sobre código propio de
+Micelia (`tests/test_events_store_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = camino completo: endpoint → `get_by_correlation` → columna `correlation_id`):**
+- **(a) Coerción de tipo en el WHERE — SIN drift:** la columna `correlation_id = Column(PGUUID(as_uuid=True), index=True)`
+  (`store.py:33`) mapea `uuid.UUID` nativo. El endpoint tipa `correlation_id: UUID` (`events.py:197`) → FastAPI valida/coacciona
+  el path `str`→`UUID` (path inválido → 422, cubierto por `test_by_correlation_invalid_uuid_422`). `get_by_correlation`
+  (`store.py:257`) filtra `IdmEventModel.correlation_id == correlation_id` → comparación **UUID-vs-UUID**, no la comparación
+  `str`-vs-`str` del filtro `source` (donde sí hubo asimetría write/read, Ciclo 47). Compilando la SQL (`literal_binds`) el bind
+  sale como **hex canónico** `'12345678123456781234567812345678'` → confirma que el valor viaja como UUID real, sin coerción a
+  string-con-guiones ni round-trip perdido. **No requiere cambio de producción.** Mismo verdicto "sin drift" que Ciclos 44/47/48.
+- **(b) Shape — SIN drift:** backend devuelve `{correlation_id, events, count}` (`events.py:210`); el panel tipa
+  `byCorrelation(): { events: IdmEvent[] }` (`lib/api.ts:223`) y **grep confirma que NINGÚN componente** llama `byCorrelation`
+  fuera de la definición del cliente → el panel toma solo `events`, `correlation_id`/`count` son superset inerte (reconfirma la
+  conclusión de Ciclo 46; no quedó ningún hook latente).
+- **GAP ADYACENTE (cobertura):** los 2 tests de `get_by_correlation` (`TestGetByCorrelation`) solo asertaban longitud del
+  resultado y `correlation_id` en el dict de salida; **ni el WHERE ni el ORDER BY tenían aserción**. Dos garantías del contrato sin
+  blindar: (1) que el filtro ligue el UUID exacto; (2) que el orden sea `timestamp` **ascendente** (traza cronológica del flujo,
+  contrario a `query_events.desc()`) — un cambio a `.desc()` invertiría en silencio las trazas de workflow sin cazarlo ningún test.
+
+**Hecho (1 commit atómico `test(events)` `921a3a8`):**
+- **`test_get_by_correlation_filters_exact_uuid_ascending`:** compila el SQL (`literal_binds`) y asserta `correlation_id = '<hex>'`
+  con el hex canónico del UUID de entrada (blinda que el filtro liga el UUID exacto, sin coerción str↔UUID), `ORDER BY
+  idm_events.timestamp` presente y `DESC` **ausente** (blinda el orden ascendente = traza cronológica del flujo). Mismo patrón
+  compile-SQL que los tests de rango/normalización de Ciclos 47/48.
+- Cambio **test-only** (no había defecto de producción): la auditoría concluyó "sin drift" en (a) y (b); el deliverable es
+  regresión que fija el contrato verificado (prioridad #3, cobertura con valor real sobre el WHERE + orden del by-correlation).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores; el test nuevo no
+toca `app/`), test ✓ (**1476 pass** + 2 skip, era 1475 en Ciclo 48: **+1** test), cov ✓ (**93.12%**, ≥ gate **92**). Frontend no
+tocado. Sin procesos residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4. Nota: como en Ciclos 47/48, la garantía end-to-end real ("persistir con correlation_id X → recuperarlo por by-correlation
+ordenado") no se puede testear con una DB real en los tests (aiosqlite ausente + columnas UUID Postgres-only, y prohibido tocar
+`uv.lock`); queda cubierta por composición (WHERE+orden verificados vía compile-SQL + `_event_to_dict` con test unitario).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El gap era de cobertura interna a Micelia → resuelto con test, sin
+decisión cross-project. Siguen abiertas **DP-9** (paginación con total global en el panel, Ciclo 46), **DP-8** (canela sin `version`
+en health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars)
+y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 50):** contrato de eventos auditado extremo a extremo — request/response/query-filters/read-shapes/stats-semantics/
+timeline-timezone/by-correlation (Ciclos 43–49), todos "sin drift" + regresión. Siguiente en **coherencia inter-proyecto (#4)**:
+auditar el **contrato de `POST /api/v1/events` (`create_event` → `EventCreate`)** — verificar (a) que TODOS los campos que
+`EventCreate` acepta se propagan a `append_event`/persistencia (¿algún campo del body —p.ej. `causation_id`, `occurred_at`,
+`compute_*`, `tags`, `metadata`— se pierde en el mapeo request→store, como pasó con `correlation_id` que hubo que cablear?), y
+(b) que el `EventCreateResponse` `{event_id, status, timestamp}` casa con lo que el SDK/`eventsApi.create()` del panel espera.
+Alternativa a cobertura: `cli.py`/`main.py` vía subprocess (techo de bajo riesgo). No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 48 (COHERENCIA INTER-PROYECTO #4: audita el **contrato de `GET /api/v1/events/timeline/{date}`** — el endpoint parsea con `datetime.strptime(date, "%Y-%m-%d")` (naive) y `get_timeline` construye la ventana `[start, start+1día)` con `datetime.combine(date.date(), datetime.min.time())`; ¿la referencia de timezone del rango coincide con la de los `timestamp` persistidos (`utcnow_naive()`) o hay riesgo de desalineación de día por TZ local? **CONCLUSIÓN: SIN drift de timezone** — el camino completo es **naive-UTC de extremo a extremo**: `strptime`/`combine`/`date()`/`min.time()` **nunca consultan la TZ del sistema** (son parseo/composición puros, no `datetime.now()` ni `.astimezone()`), la columna `timestamp` es `DateTime` sin `timezone=True` y se escribe con `utcnow_naive()` → la comparación `timestamp >= start AND timestamp < end` es naive-vs-naive sobre la MISMA referencia naive-UTC; el rango selecciona exactamente el **día-UTC**, sin desalineación por TZ local. Shape `{date, events, count}` casa con lo que `eventsApi.timeline()` del panel espera (`{events}`, subconjunto OK — confirmado Ciclo 46). **Gap adyacente encontrado (cobertura, no correctitud):** los 3 tests de `get_timeline` NO aserta­ban los límites del rango — solo que `execute()` se llamaba → la parte sensible a TZ (que la ventana sea `[medianoche, medianoche+1día)` naive) estaba sin blindar; un cambio futuro a `timedelta(hours=1)`, `.astimezone()` o `datetime.now()` no lo cazaría ningún test. Deliverable Micelia-only: **+2 tests que compilan el SQL y asertan el rango exacto naive-UTC** (mismo patrón compile-SQL de Ciclo 47) · verify verde 1475 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 47 (1473 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 47
