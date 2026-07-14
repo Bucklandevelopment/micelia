@@ -9,7 +9,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.core.security import verify_auth
 
@@ -65,7 +65,12 @@ class PromptClassify(BaseModel):
 
 
 class PromptPromoteToList(BaseModel):
-    list_slug: str
+    # El panel (frontend/src/lib/api.ts:promoteToList) envía la clave `slug`;
+    # aceptamos ambas (`list_slug` histórico + `slug` del panel) vía AliasChoices
+    # para honrar el contrato del panel sin romper consumidores existentes.
+    list_slug: str = Field(
+        ..., validation_alias=AliasChoices("list_slug", "slug")
+    )
 
 
 class PromptPromoteToSkill(BaseModel):

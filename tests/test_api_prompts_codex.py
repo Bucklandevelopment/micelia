@@ -375,6 +375,27 @@ async def test_promote_to_list_not_found():
     assert r.status_code == 404
 
 
+# Clave que el panel (frontend/src/lib/api.ts:promoteToList) envía en el body:
+# `{ slug }`, NO `{ list_slug }`. Guarda el contrato del panel: si el backend deja
+# de aceptar `slug`, el botón "promover a lista" del panel vuelve a dar 422.
+PANEL_PROMOTE_TO_LIST_KEY = "slug"
+
+
+async def test_promote_to_list_accepts_panel_slug_key():
+    store = _store(promote_to_list=True)
+    app = build_app(store)
+    async with client_for(app) as c:
+        r = await c.post(
+            f"/api/v1/prompts/{uuid4()}/promote/list",
+            json={PANEL_PROMOTE_TO_LIST_KEY: "ideas"},
+            headers=AUTH,
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"success": True, "promoted_to": "list", "ref": "ideas"}
+    # El alias mapea `slug` -> list_slug y llega intacto al store.
+    assert store.promote_to_list.await_args.args[1] == "ideas"
+
+
 async def test_promote_to_skill_ok():
     skill_id = uuid4()
     app = build_app(_store(promote_to_skill=skill_id))
