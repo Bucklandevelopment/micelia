@@ -374,6 +374,31 @@ class TestGetByCorrelation:
         results = await store.get_by_correlation(uuid4())
         assert results == []
 
+    @pytest.mark.asyncio
+    async def test_get_by_correlation_filters_exact_uuid_ascending(
+        self, store, mock_session
+    ):
+        # Contrato de by-correlation (Ciclo 49): la columna correlation_id es
+        # PGUUID(as_uuid=True) y el endpoint tipa `correlation_id: UUID`, así que
+        # el WHERE compara UUID-vs-UUID (sin coerción str↔UUID como en el filtro
+        # `source`). Blinda dos cosas que ningún test cubría:
+        #  (a) el filtro liga EXACTAMENTE el UUID recibido (hex canónico, no un
+        #      string con guiones ni otra forma) -> no hay drift de tipo;
+        #  (b) el orden es timestamp ASCENDENTE (traza cronológica del flujo),
+        #      a diferencia de query_events que ordena .desc(). Un cambio futuro
+        #      a .desc() invertiría en silencio las trazas de workflow.
+        corr = UUID("12345678-1234-5678-1234-567812345678")
+        mock_session.execute = AsyncMock(return_value=_scalars_result([]))
+        _bind(store, mock_session)
+
+        await store.get_by_correlation(corr)
+
+        stmt = mock_session.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "correlation_id = '%s'" % corr.hex in compiled  # UUID exacto ligado
+        assert "ORDER BY idm_events.timestamp" in compiled  # orden por timestamp
+        assert "DESC" not in compiled  # ascendente: traza cronológica del flujo
+
 
 # ---------------------------------------------------------------------------
 # get_timeline
