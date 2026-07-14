@@ -34,6 +34,22 @@ import pytest
 import app.services.mcp_generator as mg
 from app.services.mcp_generator import MCPGenerator, get_mcp_generator
 
+# Fuente de verdad: los 7 campos EXACTOS de `interface MCPServer`
+# (frontend/src/lib/api.ts:457) que el panel consume vía mcpApi.servers()/get()
+# (MCPServersTab en frontend/src/app/skills/page.tsx). Si list_servers/get_server
+# dropea/renombra cualquiera, el guard de contrato falla.
+PANEL_MCPSERVER_FIELDS = frozenset(
+    {
+        "server_id",
+        "name",
+        "description",
+        "language",
+        "tools",
+        "status",
+        "created_at",
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -269,6 +285,47 @@ def test_list_servers_reads_metadata_and_running_flag(tmp_path, monkeypatch):
     assert by_id["b"]["language"] == "typescript"
 
 
+def test_list_servers_covers_panel_mcpserver_contract(tmp_path, monkeypatch):
+    """Guard de contrato micelia↔panel: cada server de list_servers debe emitir los
+    7 campos de `interface MCPServer` (frontend/src/lib/api.ts:457), consumidos por
+    MCPServersTab (skills/page.tsx): `name` (título), `status` (badge + botón
+    Start/Stop), `tools` (chips), etc. Antes de Ciclo 56 el backend emitía
+    `running: bool` en vez de `status` y NUNCA emitía `name` → título en blanco y
+    servidores parados mostraban siempre "Stop".
+    """
+    gen = _gen(tmp_path, monkeypatch)
+    gen.generate("stopped-srv", "s", TOOLS_PY)
+    gen.generate("running-srv", "r", TOOLS_PY)
+    gen._running_processes["running-srv"] = _FakeProc()
+
+    by_id = {s["server_id"]: s for s in gen.list_servers()}
+    for srv in by_id.values():
+        missing = PANEL_MCPSERVER_FIELDS - srv.keys()
+        assert not missing, f"list_servers dropea/renombra campos del panel: {missing}"
+    # status derivado de running; name derivado de server_id (metadata legada).
+    assert by_id["stopped-srv"]["status"] == "stopped"
+    assert by_id["running-srv"]["status"] == "running"
+    assert by_id["stopped-srv"]["name"] == "stopped-srv"
+
+
+def test_list_servers_derives_status_and_name_for_legacy_metadata(tmp_path, monkeypatch):
+    """Compat: metadata.json legada (sin `name`/`status`, como la generada antes de
+    Ciclo 56) debe seguir sirviéndose con `name` (=server_id) y `status` derivados
+    en tiempo de lectura, sin regenerar."""
+    gen = _gen(tmp_path, monkeypatch)
+    legacy = gen.output_dir / "legacy"
+    legacy.mkdir(parents=True)
+    # Metadata al estilo pre-Ciclo-56: sin `name` ni `status`.
+    (legacy / "metadata.json").write_text(
+        json.dumps({"server_id": "legacy", "description": "d", "language": "python",
+                    "tools_count": 0, "tools": [], "created_at": "2026-01-01T00:00:00+00:00"})
+    )
+    s = gen.list_servers()[0]
+    assert PANEL_MCPSERVER_FIELDS <= s.keys()
+    assert s["name"] == "legacy"
+    assert s["status"] == "stopped"
+
+
 def test_list_servers_ignores_non_dir_entries(tmp_path, monkeypatch):
     gen = _gen(tmp_path, monkeypatch)
     gen.generate("a", "server a", TOOLS_PY)
@@ -295,6 +352,12 @@ def test_list_servers_unreadable_metadata_yields_fallback(tmp_path, monkeypatch)
     assert s["language"] == "unknown"
     assert s["tools_count"] == 0
     assert s["running"] is False
+    # El fallback también debe honrar el contrato del panel: sin `tools` el panel
+    # crashea en `server.tools.length`; sin `name`/`status` el título y el badge
+    # quedan en blanco. (drift cazado en Ciclo 56)
+    assert PANEL_MCPSERVER_FIELDS <= s.keys()
+    assert s["tools"] == []
+    assert s["status"] == "stopped"
 
 
 # ===========================================================================
@@ -317,6 +380,21 @@ def test_get_server_returns_metadata_source_and_files(tmp_path, monkeypatch):
     assert "FastMCP" in result["source_code"]
     assert "server.py" in result["files"]
     assert "metadata.json" in result["files"]
+
+
+def test_get_server_covers_panel_mcpserver_contract(tmp_path, monkeypatch):
+    """Guard de contrato: get_server (mcpApi.get) debe emitir los 7 campos de
+    `interface MCPServer` (+ source_code, extra que sí declara el panel). El drift de
+    Ciclo 56: faltaban `name` y `status`."""
+    gen = _gen(tmp_path, monkeypatch)
+    gen.generate("srv", "A server", TOOLS_PY, language="python")
+    result = gen.get_server("srv")
+    missing = PANEL_MCPSERVER_FIELDS - result.keys()
+    assert not missing, f"get_server dropea/renombra campos del panel: {missing}"
+    assert result["name"] == "srv"
+    assert result["status"] == "stopped"
+    gen._running_processes["srv"] = _FakeProc()
+    assert gen.get_server("srv")["status"] == "running"
 
 
 def test_get_server_running_flag_true(tmp_path, monkeypatch):

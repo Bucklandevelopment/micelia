@@ -65,6 +65,7 @@ class MCPGenerator:
         # Write metadata
         metadata = {
             "server_id": name,
+            "name": name,
             "description": description,
             "language": language,
             "tools_count": len(tools),
@@ -360,19 +361,28 @@ Micelia MCP Generator
             if entry.is_dir():
                 metadata_path = entry / "metadata.json"
                 if metadata_path.exists():
+                    running = entry.name in self._running_processes
                     try:
                         with open(metadata_path) as f:
                             meta = json.load(f)
-                        meta["running"] = entry.name in self._running_processes
+                        meta["running"] = running
+                        # Contrato panel `interface MCPServer`: name + status.
+                        # Compat con metadata legada (sin "name"): deriva de server_id.
+                        meta.setdefault("name", meta.get("server_id", entry.name))
+                        meta["status"] = "running" if running else "stopped"
                         servers.append(meta)
                     except Exception as e:
                         log.warning(f"Failed to read metadata for {entry.name}: {e}")
                         servers.append({
                             "server_id": entry.name,
+                            "name": entry.name,
                             "description": "Unknown (metadata unreadable)",
                             "language": "unknown",
                             "tools_count": 0,
-                            "running": entry.name in self._running_processes,
+                            "tools": [],
+                            "created_at": "",
+                            "running": running,
+                            "status": "running" if running else "stopped",
                         })
         return servers
 
@@ -401,7 +411,11 @@ Micelia MCP Generator
         else:
             result = {"server_id": server_id}
 
-        result["running"] = server_id in self._running_processes
+        running = server_id in self._running_processes
+        result["running"] = running
+        # Contrato panel `interface MCPServer`: name + status (compat metadata legada).
+        result.setdefault("name", result.get("server_id", server_id))
+        result["status"] = "running" if running else "stopped"
 
         # Load source code
         language = result.get("language", "python")
