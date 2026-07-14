@@ -16,6 +16,76 @@
 
 ---
 
+## 2026-07-14 — Ciclo 43 (COHERENCIA INTER-PROYECTO #9: audita el **contrato de eventos que Micelia recibe por REST** — el `EventCreate` que valida `POST /api/v1/events` vs el `VitalEvent.to_dict()` que los 5 SDK de dominio realmente envían. Hallazgo: los 8 campos comunes coinciden, pero **`EventCreate` NO declaraba `correlation_id`** mientras biohack/cybertools SÍ lo emiten → Pydantic (`extra='ignore'`) lo descartaba en el ingest y `create_event` nunca lo pasaba a `append_event`, dejando la columna indexada **siempre NULL** para eventos REST → `GET /events/by-correlation/{id}` no encontraba nunca esos eventos: **feature de traza de flujos muerta para los SDK externos**. Deliverable Micelia-only: **`EventCreate` gana `correlation_id: Optional[UUID]`** + se propaga a `append_event` · +2 tests (forward + 422 UUID inválido) · verify verde 1461 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 42 (1459 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 42
+recomendó seguir en **coherencia inter-proyecto (#4)** auditando el **contrato de eventos que Micelia recibe por REST**: el
+`EventCreate`/`IdmEvent` que valida `POST /api/v1/events` (`app/api/v1/events.py`, `app/sdk/models.py`) vs el
+`VitalEvent.to_dict()` que los 5 SDK de dominio realmente envían. Trabajo sobre código propio de Micelia (`app/api/v1/events.py`
++ su test); sin tocar infra, `.env`, `uv.lock` ni código de hermanos.
+
+**Auditoría realizada (fuente de verdad = SDK vendorizado de cada dominio):**
+- **Qué acepta Micelia:** `EventCreate` (`events.py:30`) declara `category, subcategory, source, action, event_type, payload,
+  metadata, tags` (8 campos). `source` es `str` libre (documentado: 6 sources canónicos + `idm-core` legacy). Pydantic por
+  defecto **ignora campos extra** (`extra='ignore'`, no `forbid`) → un SDK que mande un campo de más no rompe, pero se **pierde
+  en silencio**.
+- **Qué envía cada SDK** (`VitalEvent.to_dict()` = `asdict` menos los `None`):
+  - **biohack** (`vital_sdk/models.py:37`) y **cybertools** (`vital_sdk/models.py:32`): dataclass `VitalEvent` con **9 campos**
+    incluyendo **`correlation_id: Optional[str]`**; sus clientes exponen `publish_event(..., correlation_id=None)` y
+    `POST json=event.to_dict()` (`client.py:224-256` / `207-234`) → **emiten `correlation_id` cuando el emisor lo fija**.
+  - **canela** (`vital_sdk/events.py:create_event`) y **codking** (`vital_sdk/events.py:create_event`): función que devuelve un
+    dict de **8 campos** (sin `correlation_id`) → nunca lo mandan.
+  - **auto-mat-ion** (`src/integrations/vital-core.ts:41`): tiene `correlationId?` (camelCase) pero **publica por Redis**
+    (`emitEvent` → `vital.{category}`), no por el `POST` REST → fuera del contrato REST auditado.
+  - **8 campos comunes coinciden 1:1** (mismos nombres, `subcategory`/`metadata`/`tags` opcionales en ambos lados). Sin drift
+    en esos. El único desalineado es `correlation_id`.
+- **DRIFT ENCONTRADO (interna a Micelia, feature muerta):** `EventCreate` **NO tenía `correlation_id`** → cuando biohack/
+  cybertools posteaban `to_dict()` con `correlation_id`, Pydantic lo **descartaba** (`extra='ignore'`) y `create_event`
+  (`events.py:169`) llamaba a `append_event(...)` **sin él**. Pero el store **sí lo soporta de punta a punta**:
+  `EventStore.append_event` tiene `correlation_id: Optional[UUID]` (`store.py:127`), lo persiste en la columna indexada
+  `IdmEventModel.correlation_id` (índice compuesto `ix_events_correlation`), y existe todo el camino de lectura
+  `EventStore.get_by_correlation` (`store.py:227`) + `GET /events/by-correlation/{id}` (`events.py:146`, tipa el path como
+  `UUID`). Resultado: **para todo evento ingerido por REST la columna quedaba NULL** y `by-correlation` no devolvía nada →
+  la traza de flujos de trabajo estaba **muerta para los 5 SDK externos**. Mismo antipatrón que Ciclos 37–42: un dato del
+  contrato que la capa de destino (store) sabe guardar pero que una capa intermedia incompleta (el DTO de ingest) pierde;
+  ningún test lo cazaba porque el happy-path solo mandaba los 8 campos comunes.
+
+**Hecho (1 commit atómico `feat(events)`):**
+- `EventCreate` (`app/api/v1/events.py`) gana **`correlation_id: Optional[UUID] = None`**, tipado como `UUID` (coherente con
+  el store y con el path de `/by-correlation/{id}`; valida el string que el SDK manda y devuelve **422** si no es UUID). El
+  comentario ancla el contrato auditado (qué SDK lo emite y cuál no) y remite a Ciclo 43.
+- `create_event` propaga **`correlation_id=event.correlation_id`** a `append_event` (que ya lo soporta e indexa).
+- **+2 tests:** `test_create_event_forwards_correlation_id` (biohack/cybertools: el `correlation_id` del body llega a
+  `append_event` como `UUID`); `test_create_event_invalid_correlation_id_422` (string no-UUID → 422); y el happy-path
+  existente ahora asserta `correlation_id is None` cuando el body no lo trae (canela/codking/auto-mat-ion). Cambio **aditivo
+  y retrocompatible** (campo nuevo opcional; los SDK que no lo mandan siguen igual).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`), typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓
+(**1461 pass** + 2 skip, era 1459 en Ciclo 42: **+2** tests nuevos), cov ✓ (**93.12%**, ≥ gate **92**; +1 statement de `app/`
+= la línea `correlation_id=event.correlation_id`, ratchet no-op: `floor(93.11)−1 = 92`). Frontend no tocado. Sin procesos
+residuales (tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA
+bloqueada por DP-1..DP-4 (`docs/FUNNEL_IDMMORTALITY_RUNBOOK.md §1`). Cobertura en techo de bajo riesgo (`cli.py`/`main.py`).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El drift de `correlation_id` era interno a Micelia (DTO de ingest
+incompleto) → **resuelto en código**, no requiere decisión cross-project. Nota menor de coherencia: los SDK tipan
+`correlation_id` como `str` libre mientras Micelia ahora lo valida como `UUID` (rechaza no-UUIDs con 422); es lo correcto
+(el store y `by-correlation` ya usan `UUID`), pero si algún emisor usara un correlation-id no-UUID habría que alinearlo —
+hoy ninguno lo hace. Siguen abiertas **DP-8** (canela no emite `version` en su health-check), **DP-7** (namespace de canal
+`idm/vital/micelia`), **DP-6** (semántica de `user_id` en el pipeline research-to-course), **DP-5** (rebrand env-vars) y las
+de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 44):** el contrato de eventos REST queda auditado (8 campos comunes coinciden; `correlation_id` ahora aceptado
+y propagado end-to-end). Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de respuesta que los SDK de
+dominio esperan de `POST /api/v1/events`** — Micelia devuelve `{event_id, status:"created", timestamp}` (`events.py:193`);
+verificar qué leen los clientes biohack/cybertools de esa respuesta (`publish_event` en sus `client.py` — ¿usan `event_id`?,
+¿asumen algún campo?) para confirmar que el shape de salida tampoco tenga drift. Alternativa a cobertura: `cli.py`/`main.py`
+vía subprocess. No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-13 — Ciclo 42 (COHERENCIA INTER-PROYECTO #8: audita el **contrato HealthResponse** — qué campos lee Micelia del body del health-check de cada dominio vs el shape REAL que cada uno devuelve. Micelia lee **un solo campo**, `version` (`data.get("version")`); auditados los 4 endpoints reales: biohack/ideacursi/cybertools lo emiten a nivel superior, **canela no**. Hallazgo interno: la `version` se capturaba en `ServiceInfo` pero **ServiceStatus la omitía y `check_service` la descartaba** → nunca llegaba a `/api/v1/health/{services,detailed}`. Deliverable Micelia-only: **se expone `version`** en el modelo + se propaga en `check_service` + se incluye en `/services` · +2 tests · verify verde 1459 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 41 (1458 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 41
