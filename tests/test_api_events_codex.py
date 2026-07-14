@@ -259,6 +259,32 @@ async def test_create_event_happy_forwards_all_fields():
     assert kwargs["correlation_id"] is None
 
 
+async def test_create_event_forwards_payload_action_and_event_type():
+    # Contrato de ENTRADA (Ciclo 50): los 9 campos de `EventCreate` deben llegar
+    # a `append_event`. `test_create_event_happy_forwards_all_fields` asertaba
+    # category/subcategory/source/event_metadata/tags/correlation_id, pero NO
+    # `payload` (el dato central del evento), `action` ni `event_type` —aunque el
+    # body sí los enviaba—. Un cambio que dropee `payload=event.payload` o rompa
+    # el mapeo request→store de action/event_type corrompería cada evento sin que
+    # ningún test lo cazara. Cierra ese hueco: fidelidad de los 3 campos restantes.
+    store = fake_store(append_event=uuid4())
+    body = {
+        "category": "research",
+        "source": "canela",
+        "action": "analyze",
+        "event_type": "research.paper.ingested",
+        "payload": {"doi": "10.1/x", "score": 0.97, "nested": {"k": [1, 2]}},
+    }
+    async with client_for(build_app(store)) as ac:
+        resp = await ac.post("/api/v1/events", json=body, headers=AUTH)
+    assert resp.status_code == 200
+    kwargs = store.append_event.call_args.kwargs
+    # payload se reenvía intacto (incl. estructura anidada), sin renombrar ni perder claves.
+    assert kwargs["payload"] == {"doi": "10.1/x", "score": 0.97, "nested": {"k": [1, 2]}}
+    assert kwargs["action"] == "analyze"
+    assert kwargs["event_type"] == "research.paper.ingested"
+
+
 async def test_create_event_forwards_correlation_id():
     # biohack/cybertools POST `VitalEvent.to_dict()` con `correlation_id` cuando
     # el emisor lo fija. Debe llegar a `append_event` para que la traza
