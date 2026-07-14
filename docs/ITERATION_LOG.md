@@ -16,6 +16,70 @@
 
 ---
 
+## 2026-07-14 — Ciclo 62 (**SÉPTIMO DRIFT REAL del eje de escritura — los candidatos (a)(b) de C61 resultan INERTES, pero el barrido a los payloads REALMENTE ejercidos caza el gemelo UPDATE del bug de C60**: sigo la recomendación de C61. **`promptsApi.create` y `createList`: SIN drift ejercido** — ambos endpoints no tienen caller vivo en el panel (`useCreatePrompt` existe pero nadie lo usa; la creación de prompts va por `QuickNoteInput→createNote`, auditado C59; `createList` no se llama en ningún sitio: solo definido en `api.ts:362`). Sin caller ⇒ sin payload real ⇒ sin bug vivo; no fabrico fix (mismo criterio honesto que C60 con `promptsApi.update` y C61 con `fromPrompt`). **Pivote a los payloads de escritura que el panel SÍ dispara y aún no reproducidos con opcionales vacíos** → **`skillsApi.update` — DRIFT REAL con 422 reproducido, GEMELO EXACTO de C60 en el eje UPDATE**: el form `SkillForm` (`skills/page.tsx:258`) es **compartido create/edit** y `handleSubmit` (línea 291) hace `mutation.mutate(form)` **esparciendo el `form` ENTERO**, así que `description` viaja **siempre presente**; el guard (línea 290) solo exige `name/trigger_pattern/prompt_template`, **no `description`** → con el input vacío, el PATCH de editar manda **`description: ""`**. Pero `SkillUpdate.description` (`skills.py:46`) era **`Field(default=None, min_length=1, max_length=2000)`** → como `""` está **presente y no es None**, Pydantic aplica `min_length=1` → **422 `string_too_short` `loc:["description"]`** (reproducido con el payload EXACTO del form). Efecto real: **editar una skill y vaciar/dejar sin descripción fallaba**. C60 dio por bueno el eje UPDATE ("`SkillUpdate.description` ya es Optional") — cierto para OMITIR el campo (default None), pero el form nunca lo omite: lo **envía `""`**, y ahí `min_length=1` mordía. El handler usa `model_dump(exclude_none=True)`, así que `""` (no None) se conserva y persiste (semántica correcta: el usuario vacía la descripción). Decisión idéntica a C56–C61: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4). Fix **additivo**: quitar `min_length=1` de `SkillUpdate.description` (sigue `Optional`, `max_length=2000` intacto); consistente con `SkillCreate.description` (C60). **+1 test `test_update_skill_accepts_panel_empty_description` + constante `PANEL_EDIT_SKILL_EMPTY_DESCRIPTION`** (payload del edit-form con `""`) que asserta 200 y que `description=""` llega al manager (no None, no 422). Verify verde 1489 pass (+1) · cov 93.13% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de C61 (1488 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C61 recomendó auditar
+`promptsApi.create` y `createList` con opcionales vacíos. Trabajo sobre código propio de Micelia (`app/api/v1/skills.py` + su test); sin
+tocar infra, `.env`, `uv.lock` ni repos hermanos.
+
+**Auditoría realizada (método C59–C61 = reproducir con el payload EXACTO que el form serializa vs el `BaseModel` que valida):**
+- **`promptsApi.create` — SIN drift ejercido (endpoint inerte hoy):** el hook `useCreatePrompt` (`usePrompts.ts:106`) envuelve
+  `promptsApi.create`, pero **grep de `useCreatePrompt` en `components/`+`app/` = vacío**: nadie lo monta. La creación real de prompts en
+  la UI es `QuickNoteInput` (`prompts/page.tsx:149`) → `useCreateNote` → `createNote {text,tags}` == `QuickNoteCreate` (auditado C59, ok).
+  Sin caller no hay payload que reproducir. (Nota latente: `PromptCreate.content: str` sin default aceptaría `""`; `scheduled_at:
+  Optional[datetime]` daría 422 con `""` — pero el hook ni siquiera manda `scheduled_at`. Queda bajo DP-10 si algún día se cablea.)
+- **`createList` — SIN drift ejercido (endpoint inerte hoy):** `grep createList frontend/src` = **solo la definición** (`api.ts:362`);
+  cero callers, ni hook. `PromptListEditor` solo usa `updateList` (auditado C59, ok). Sin caller, sin bug vivo.
+- **`skillsApi.update` — DRIFT REAL (422), reproducido:** `uv run python` contra `SkillUpdate(**{name,description:"",trigger_pattern,
+  prompt_template})` → `[('string_too_short', ('description',))]`; y `SkillUpdate(name='x').description == None` (omitir sí valía, enviar
+  `""` no). El edit-form (`updateMutation`, `skills/page.tsx:278`) es caller vivo (botón "Edit Skill").
+- **Test que enmascaraba el drift:** `test_update_skill_ok` (`test_api_skills_codex.py:193`) manda `{"description":"new"}` (no vacía) y
+  `test_update_skill_empty_body_400` manda `{}` (0 campos → 400 por otra rama), nunca `description:""`. Igual patrón que C56–C61.
+
+**Hecho (1 commit atómico `fix(skills)` `5e1f554`):**
+- **Fix producción (`skills.py`):** `SkillUpdate.description` pasa de `Field(default=None, min_length=1, max_length=2000)` a
+  `Field(default=None, max_length=2000)` (sin `min_length`; `""` presente ahora válido; omitir sigue dando None). **Additivo**: editar
+  con descripción no cambia; el `""` del form ahora da 200 y se persiste (`exclude_none` conserva `""` por no ser None). Los otros 3
+  campos (`name/trigger_pattern/prompt_template`) mantienen `min_length=1` porque el form SÍ los guarda no-vacíos (línea 290). 0
+  regresión (`test_update_skill_ok`, `_empty_body_400`, `_not_found`, `_value_error`, `_generic_500` intactos).
+- **Regresión (`test_api_skills_codex.py`):** constante módulo-nivel **`PANEL_EDIT_SKILL_EMPTY_DESCRIPTION`** (payload del edit-form con
+  `""`) + `test_update_skill_accepts_panel_empty_description`: PATCH con `""`, asserta **200** + que `manager.update_skill` recibió
+  `description=""` en `args[1]` (dict de fields; no None, no 422). **Mutación:** restaurar `min_length=1` vuelve a 422 → el test falla
+  nombrando el payload del edit-form. Espejo de los guards `PANEL_*` de C56–C61.
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_EDIT_SKILL_EMPTY_DESCRIPTION` módulo-nivel evita N806),
+typecheck ✓ (mypy sobre `app/`, 0 errores), test ✓ (**1489 pass** + 2 skip, era 1488 en C61: **+1**), cov ✓ (**93.13%**, ≥ gate
+**92**). *Nota:* Pyright marca 2 avisos preexistentes de "`store` no usado" en `test_api_skills_codex.py:396,406` (los mismos stubs de
+monkeypatch que C60 documentó en 370,380; mi inserción de ~24 líneas solo desplazó su numeración); NO los introduje, ruff no los marca,
+fuera de scope. Frontend **no tocado**: el fix hace válido el `""` que el edit-form YA envía, sin redeploy. Sin procesos residuales
+(tests in-process, sin Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend (**este fix hace
+funcional "editar skill sin/ con descripción vacía"** que daba 422 — SÉPTIMO flujo de panel reparado; 7 ciclos consecutivos); (2)
+actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **Refuerza DP-10 con SÉPTIMA evidencia dura, y el matiz más contundente hasta
+ahora:** el MISMO bug (`description` obligatoria-en-schema vs opcional-en-form) apareció en TRES variantes — create de skill (C60),
+generate MCP (C61) y ahora **update de skill (C62)** — y la de hoy vivía **detrás de una premisa falsa de C60** ("el eje UPDATE ya está
+bien porque es Optional"): `Optional` cubre OMITIR pero no cubre ENVIAR `""`, y el form siempre envía. Con C56–C62, **siete flujos de
+panel rotos en siete ciclos**. Esto endurece la recomendación para DP-10: el blindaje debe testear, por cada form, **el payload que el
+form realmente serializa** (form entero esparcido, campos opcionales = `""` presente, NO omitido) — un `response_model` no lo caza (es
+request) y "Optional en el schema" NO garantiza que `""` presente pase. Siguen abiertas **DP-10** (blindaje de contratos crudos),
+**DP-9** (paginación total global), **DP-8** (canela sin `version`), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en
+research-to-course), **DP-5** (rebrand env-vars) y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 63):** cazadas las TRES variantes de `description`-obligatoria (C60 create-skill, C61 mcp-generate, C62 update-skill). El
+barrido de escritura/POST con el **payload real esparcido** sigue vivo sobre mutaciones ejercidas aún no reproducidas con opcionales
+vacíos/presentes: (a) **`updateList`** (`PromptListEditor`→`updateList {content_md}`) — auditado C59 como subset, pero re-verificar que
+enviar `content_md:""` (vaciar la lista) no choque con algún `min_length`; (b) **agents `execute`** (`{prompt_id, workflow?}`) y
+`createCrew` (`{name, agents, workflow}`) — ¿algún form que los dispare con `agents:[]` o `name:""`?; (c) revisar si algún OTRO form del
+panel esparce el objeto entero (patrón `mutate(form)`) con campos opcionales que el schema marque `min_length`/obligatorios — es el
+patrón que ha dado 7 drifts. Nota: `promptsApi.create`, `createList`, `promptsApi.update`, `mcpApi.fromPrompt` son candidatos de
+contrato pero **inertes** hasta que se cablee su caller — no tocar sin caller. No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 61 (**SEXTO DRIFT REAL del eje de escritura — el "candidato caliente" que C60 predijo (`mcpApi.generate`), y se ARREGLA**: sigo la recomendación (a) de C60. **Confirmado como DRIFT REAL con 422 reproducido, patrón idéntico a C60 (skills)**: el form `MCPGenerateForm` (`skills/page.tsx:548`) **no marca el `<input>` de descripción como `required`** (el de Server Name sí, línea 611) y `handleSubmit` (línea 585) solo exige `!form.name || validTools.length===0`, así que puede enviar **`description: ""`**; pero `GenerateRequest.description` (`mcp.py:37`) tenía **`Field(..., min_length=1, max_length=500)`** → **422 `string_too_short` `loc:["description"]`** (reproducido con el payload EXACTO del form contra el `BaseModel`). Efecto real: **el botón "Generate MCP Server" fallaba** si el usuario dejaba la descripción en blanco. Los tools anidados no driftean (`ToolDefinition.description=""` default, `parameters:[]` default → el `{name,description:""}` que envía el form es válido). Los tests enmascaraban el drift igual que C60: `test_generate_ok` usa `GENERATE_PAYLOAD` con `description:"Weather tools"` (no vacía) y `test_generate_validation_422` prueba name/tools/language malos, **nunca `description:""`**. Decisión idéntica a C56–C60: código propio de Micelia (`app/api/v1/`), orquestador = contrato → `fix:` que el panel necesita (prioridad #4). Fix **additivo**: `description: str = Field(default="", max_length=500)` (opcional, `""` permitido, `max_length` intacto), consistente con `SkillCreate.description` (C60). **+1 test `test_generate_accepts_panel_empty_description` + constante `PANEL_GENERATE_NO_DESCRIPTION`** (payload del form con `""`) que asserta 200 y que `description=""` llega intacta al generador. Verify verde 1488 pass (+1) · cov 93.13% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de C60 (1487 pass, cov 93.13%) → no aplica prioridad #1 (red→green). C60 marcó `mcpApi.generate`
