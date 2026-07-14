@@ -16,6 +16,75 @@
 
 ---
 
+## 2026-07-14 — Ciclo 46 (COHERENCIA INTER-PROYECTO #12: audita los **endpoints de lectura de eventos** (`GET /events`, `/events/stats`, `/events/timeline/{date}`, `/events/by-correlation/{id}`) vs **lo que el panel Next.js declara consumir** (`frontend/src/types/api.ts`, `lib/api.ts`, hooks, mock MSW). **DRIFT ENCONTRADO frontend↔backend (latente + enmascarado por la mock):** el panel declaraba `GET /events` → `{events, total, page}` cuando el backend devuelve `{events, count, limit, offset}` (`total`/`page` NO existen → `useInfiniteIdmEvents` leía `lastPage.total` inexistente = paginación rota), y `eventsApi.stats()` esperaba `{total, by_category}` plano cuando el backend anida `{period_days, since, stats:{total_events, by_category, by_source}}`. La mock MSW replicaba el shape ERRÓNEO → ocultaba el drift; solo `useIdmEvents`→`EventTimeline` (lee `data.events`) está renderizado, el resto es latente → ningún test/runtime lo cazaba. `IdmEvent` (evento suelto) SÍ coincide 1:1 con `_event_to_dict` (14 campos incl. `correlation_id`+`subcategory`) → **sin drift ahí** (confirma que las lecturas están bien tipadas). Deliverable Micelia-only: **alinear el contrato del panel a las respuestas reales del backend** (tipos + cliente + hook de paginación + mock MSW), la mock deja de enmascarar el drift · frontend-lint verde (eslint+tsc) · backend verify sin cambios 1463 pass cov 93.11%)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 45 (1463 pass, cov 93.11%) → no aplica prioridad #1 (red→green). Ciclo 45
+recomendó auditar estos tres/cuatro endpoints de lectura de eventos **vs lo que el panel Next.js espera renderizar**. Trabajo
+sobre código propio de Micelia (`micelia/frontend/src/*`); sin tocar backend, infra, `.env` ni `uv.lock`. Gate de verificación
+para cambios de frontend: `make frontend-lint` (protocolo §4).
+
+**Auditoría realizada (fuente de verdad = respuestas reales del backend en `app/api/v1/events.py` + `_event_to_dict`):**
+- **Shapes reales del backend:**
+  - `GET /events` → `{events, count, limit, offset}` (`events.py:145`; `count = len(events)` de la página, NO total global).
+  - `GET /events/stats` → `{period_days, since, stats:{total_events, by_category, by_source}}` (`events.py:259` + `store.py:298`).
+  - `GET /events/timeline/{date}` → `{date, events, count}`; `GET /events/by-correlation/{id}` → `{correlation_id, events, count}`.
+  - Cada evento (en cualquiera de los cuatro) sale por `_event_to_dict` (14 campos, incl. `correlation_id` y `subcategory`).
+- **Qué declaraba el panel:**
+  - `IdmEventsResponse` (`types/api.ts`) = `{events, total, page, limit}` → **DRIFT**: `total`/`page` no existen en el backend
+    (que envía `count`/`offset`). `useInfiniteIdmEvents` (`hooks/useIdmEvents.ts:33`) hacía `if (totalFetched >= lastPage.total)`
+    → `lastPage.total` es `undefined` → `>= undefined` siempre `false` → **la paginación infinita nunca paraba** (bug latente).
+  - `eventsApi.stats()` (`lib/api.ts:217`) = `{total, by_category}` plano → **DRIFT**: el backend anida bajo `stats` y renombra
+    `total`→`total_events`, y omite `by_source`.
+  - `eventsApi.timeline()`/`byCorrelation()` = `{events}` → OK (subconjunto; las claves extra se ignoran).
+  - `IdmEvent` (evento suelto) = 14 campos que **coinciden 1:1** con `_event_to_dict` → **sin drift** (valida que las lecturas,
+    incluidas `correlation_id` de Ciclo 43 y `subcategory` de Ciclo 45, están correctamente tipadas en el panel).
+- **Por qué nadie lo cazaba (mismo antipatrón Ciclos 43–45):** (1) solo `useIdmEvents`→`EventTimeline` está **renderizado**, y
+  lee únicamente `data.events` (presente en ambos shapes) → los campos drifteados (`total`, `page`, stats plano) están en
+  hooks/cliente **latentes** (`useInfiniteIdmEvents`, `useEventStats`, `eventsApi.stats/timeline/getById`) que ningún componente
+  monta; (2) la **mock MSW** (`mocks/handlers.ts`) devolvía el MISMO shape erróneo (`{total, page}`, stats plano) → un panel que
+  corre contra la mock (`NEXT_PUBLIC_USE_MOCK=true`) “funciona”, pero contra el backend real rompería. La mock **enmascaraba** el
+  drift en vez de detectarlo.
+
+**Hecho (1 commit atómico `fix(frontend)` `9664395`):**
+- `types/api.ts`: `IdmEventsResponse` → `{events, count, limit, offset}` (shape real) + nuevo **`EventStatsResponse`**
+  `{period_days, since, stats:{total_events, by_category, by_source}}`. Docstrings que anclan el contrato real.
+- `lib/api.ts`: `eventsApi.stats()` tipado a `EventStatsResponse` (import añadido).
+- `hooks/useIdmEvents.ts`: `getNextPageParam` usa `lastPage.count < limit` como señal de fin (el backend no da total global),
+  en vez del inexistente `lastPage.total`. Fix de la paginación latente.
+- `mocks/handlers.ts`: `/events` devuelve `{events, count, limit, offset}` y **filtra por `subcategory`** (cableado en Ciclo 45);
+  `/events/stats` devuelve el wrapper anidado real. La mock ahora **refleja** el contrato del backend en lugar de ocultarlo.
+- **Path renderizado intacto:** `EventTimeline` sigue leyendo `data.events` → cambio no observable en la UI que hoy se pinta;
+  todo lo tocado eran contratos/hookslatentes → no requiere QA visual humano (que sigue pendiente para los 4 flujos, DoD).
+
+**Verify:** `make frontend-lint` **VERDE** — eslint (`next lint`) ✓ sin warnings, typecheck (`tsc --noEmit`) ✓ 0 errores.
+`make verify` (backend) **sin cambios, VERDE** — **1463 pass** + 2 skip, cov **93.11%** ≥ gate 92 (no toqué `app/` ni `tests/`).
+Frontend `node_modules` ya presente; no arranqué dev server ni backend. Sin procesos residuales (lint/tsc y pytest in-process).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend
+(ahora el panel contra backend REAL debería casar en el contrato de eventos; los hooks latentes de stats/infinite quedan listos
+para cuando se monten); (2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada;
+mitad INFRA bloqueada por DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** nueva **DP-9** — el panel originalmente quería un **`total` global** de eventos para
+la paginación infinita (`useInfiniteIdmEvents`), pero el backend `GET /events` solo devuelve `count` = tamaño de página. Se
+alineó el panel a la realidad del backend (parar cuando la página < `limit`), que es correcto pero no permite mostrar “X de N”.
+Si se quiere paginación con total real, es una **feature de backend** deliberada (añadir un `COUNT(*)` con los mismos filtros a
+`query_events`/endpoint y exponer `total`) — NO se tomó por iniciativa propia (cambia el contrato de respuesta y afecta a
+consumidores). Nota menor relacionada: la mock POST `/events` devuelve **201** mientras el backend real devuelve **200**
+(coherencia REST ya anotada en Ciclo 44; los SDK aceptan ambos) — no se tocó. Siguen abiertas **DP-8** (canela sin `version` en
+health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars)
+y las de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 47):** contrato de eventos auditado end-to-end en las 4 direcciones — ingest request (43), POST response (44),
+GET query-filters (45) y read shapes del panel (46). Siguiente en **coherencia inter-proyecto (#4)**: auditar el **contrato de
+`GET /api/v1/events/stats` a nivel semántico** ahora que el panel lo tipa bien — ¿el `EventStatsResponse` que el panel espera
+(`by_source` con los 6 sources canónicos) casa con lo que `get_stats` agrega realmente (agrupa por `source` crudo de la BD, que
+podría incluir `idm-core` legacy antes de normalizar)? Verificar si `get_stats` normaliza `idm-core`→`micelia` en la agregación
+o si un evento legacy aparecería como source separado en el panel. Alternativa: cobertura `cli.py`/`main.py` vía subprocess
+(techo de bajo riesgo). No tocar infra, `.env` ni `uv.lock`. **Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 45 (COHERENCIA INTER-PROYECTO #11: audita el **contrato de query de `GET /api/v1/events`** — los filtros que el endpoint `list_events` acepta vs lo que `EventStore.query_events` realmente soporta y lo que el shape de respuesta (`_event_to_dict`) devuelve. **DRIFT ENCONTRADO:** el filtro **`subcategory`** estaba soportado de punta a punta en el store (`query_events` lo filtra, `append_event`/`_event_to_dict` lo persisten y serializan) y hasta el mock e2e lo imitaba, pero el **endpoint lo descartaba en silencio** → imposible filtrar por subcategoría vía REST pese a estar soportado end-to-end. Además el modelo **`EventQuery` era código muerto** (nunca instanciado por el endpoint ni por FastAPI) que declaraba ese mismo `subcategory` que el endpoint no honraba: documentaba un contrato que la capa de destino no enforzaba (mismo antipatrón que Ciclos 43–44). Deliverable Micelia-only: **`list_events` gana el param `subcategory` y lo reenvía a `query_events`** + **eliminado `EventQuery` muerto** (el contrato de query real es la firma del endpoint, de ahí sale el OpenAPI) · +1 test forwarding + asserts en happy-path/defaults · verify verde 1463 pass · cov 93.11% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 44 (1462 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 44
