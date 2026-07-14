@@ -150,7 +150,11 @@ async def get_inbox(request: Request, limit: int = 50):
     store = request.app.state.prompt_store
     if not store:
         raise HTTPException(503, "Prompt system not available")
-    return {"prompts": await store.get_captured_prompts(limit), "view": "inbox"}
+    # `count` lo consume el badge de la pestaña Inbox del panel
+    # (useTabCounts -> `total ?? count ?? 0`); sin él el contador quedaba en 0.
+    # Consistente con /lists ({lists, count: len}); el store devuelve lista simple.
+    prompts = await store.get_captured_prompts(limit)
+    return {"prompts": prompts, "count": len(prompts), "view": "inbox"}
 
 
 @router.get("/staging")
@@ -159,7 +163,9 @@ async def get_staging(request: Request, limit: int = 50):
     store = request.app.state.prompt_store
     if not store:
         raise HTTPException(503, "Prompt system not available")
-    return {"prompts": await store.get_staged_prompts(limit), "view": "staging"}
+    # `count` para el badge de la pestaña Staging (ver nota en get_inbox).
+    prompts = await store.get_staged_prompts(limit)
+    return {"prompts": prompts, "count": len(prompts), "view": "staging"}
 
 
 @router.get("/archive")

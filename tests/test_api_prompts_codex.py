@@ -136,7 +136,19 @@ async def test_get_inbox():
     async with client_for(app) as c:
         r = await c.get("/api/v1/prompts/inbox?limit=5", headers=AUTH)
     assert r.status_code == 200
-    assert r.json() == {"prompts": [{"id": 1}], "view": "inbox"}
+    # `count` alimenta el badge de la pestaña Inbox del panel (useTabCounts).
+    assert r.json() == {"prompts": [{"id": 1}], "count": 1, "view": "inbox"}
+
+
+async def test_get_inbox_count_matches_prompts():
+    # El badge del panel lee `total ?? count ?? 0`; sin `count` marcaba 0
+    # aunque hubiera prompts capturados. Regresión: count == len(prompts).
+    app = build_app(_store(get_captured_prompts=[{"id": 1}, {"id": 2}, {"id": 3}]))
+    async with client_for(app) as c:
+        r = await c.get("/api/v1/prompts/inbox", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 3 == len(body["prompts"])
 
 
 async def test_get_staging():
@@ -144,7 +156,8 @@ async def test_get_staging():
     async with client_for(app) as c:
         r = await c.get("/api/v1/prompts/staging", headers=AUTH)
     assert r.status_code == 200
-    assert r.json() == {"prompts": [{"id": 2}], "view": "staging"}
+    # `count` alimenta el badge de la pestaña Staging del panel.
+    assert r.json() == {"prompts": [{"id": 2}], "count": 1, "view": "staging"}
 
 
 async def test_get_archive():
