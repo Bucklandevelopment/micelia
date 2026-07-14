@@ -207,6 +207,39 @@ async def test_health_endpoints_cover_every_registered_service(client):
         await reg.stop_monitoring()
 
 
+def test_health_endpoints_match_audited_domain_contracts():
+    # Tripwire de coherencia inter-proyecto (auditado Ciclo 66, 2026-07-15
+    # leyendo el handler REAL de cada dominio hermano). El test anterior solo
+    # garantiza que cada servicio TIENE endpoint; este PINEA el valor exacto de
+    # la ruta que sirve cada dominio. Si alguien edita HEALTH_ENDPOINTS sin
+    # re-verificar el dominio, el healthcheck del gateway sondearía una ruta que
+    # el dominio no sirve (404 -> "unhealthy" silencioso, como el drift de
+    # puertos que cerró C65). Rutas ancladas al código del dominio:
+    #   - health   (biohack-app):   /api/v1/service-health
+    #                               (biohack-app/backend/main.py:209 @app.get)
+    #   - research (canela-molida): /health
+    #                               (canela-molida/app/main.py:505 @app.get)
+    #   - education (ideacursi-tool): /api/health
+    #                               (@Controller('health')+@Get() en
+    #                                backend/src/health/health.controller.js
+    #                                bajo setGlobalPrefix('api') en main.js:65)
+    #   - security (cybertools):    /health
+    #                               (cybertools/src/scanet/api.py:127 @app.get)
+    # devtools/testlab: default "/health" (servicios feature-flagged, no montados).
+    assert ServiceRegistry.HEALTH_ENDPOINTS == {
+        "health": "/api/v1/service-health",
+        "research": "/health",
+        "education": "/api/health",
+        "security": "/health",
+        "devtools": "/health",
+        "testlab": "/health",
+    }, (
+        "HEALTH_ENDPOINTS divergió del contrato auditado; re-verifica el handler "
+        "de health del dominio afectado ANTES de actualizar este pin (ver "
+        "docstring: file:line de cada dominio)."
+    )
+
+
 async def test_discover_services_unhealthy_only_health_hint(client, monkeypatch):
     # Enable ONLY the 'health' domain and make it fail -> hits the consolidated
     # unhealthy-summary branch with the "make docker-health" hint.
