@@ -16,6 +16,63 @@
 
 ---
 
+## 2026-07-14 — Ciclo 55 (CAMBIO DE ROUTER ejecutado: el eje "contratos de lectura de prompts ↔ panel" quedó agotado en Ciclos 52–54 (los 4 objetos que `promptsApi` lee blindados). Sigo la recomendación (B) de Ciclo 54 y aplico la MISMA metodología de contrato al siguiente router que el panel consume intensamente: **`skillsApi` / `GET /api/v1/skills` → `interface Skill`** (`frontend/src/lib/api.ts:427`; `skillsApi` tiene 8 métodos). No tomo la recomendación (A) DP-10 (`response_model`) porque sigue siendo **DECISIÓN PENDIENTE de Jessicache** y cambiaría el shape en runtime. **CONCLUSIÓN: SIN drift** — (a) envelope `list_skills` (`skills.py:80`) devuelve `{skills, count, active}` = superset de `{skills: Skill[], count}` del panel (`active` extra inerte); (b) `_skill_to_dict` (`skills_manager.py:300`) emite los **10 campos exactos** de `interface Skill` **+1 extra inerte** (`metadata`, que `Skill` no declara) → superset, mismo patrón que `_prompt_to_dict`/`_list_to_dict`, con el mismo remapeo frágil `metadata_json`→`metadata`. **Gap encontrado (cobertura, no correctitud):** las 3 aserciones existentes sobre la salida de `_skill_to_dict` (`test_create_skill_persists_and_returns_dict`, `test_create_skill_default_metadata`, `test_skill_to_dict_with_updated_at`) cubrían solo **6 de los 10** campos del panel (`name, slug, is_active, usage_count, updated_at, metadata`); los otros **5 — `skill_id` (key de React en la lista), `description`, `trigger_pattern`, `prompt_template`, `created_at`— quedaban sin guard**: un drop/rename los rompería en `skillsApi.list()/get()` pasando el verify entero. Deliverable Micelia-only: **+1 test** `test_skill_to_dict_covers_panel_skill_contract` + constante `PANEL_SKILL_FIELDS` (fuente de verdad = los 10 campos del panel) que falla si falta cualquiera · **probado** que caza el rename `skill_id`→`id` (fallo en aserción de faltantes; restaurado producción, grep confirma `"skill_id"` intacto) · verify verde 1480 pass · cov 93.12% · gate 92 sin cambio)
+
+**Contexto:** `make verify` VERDE al cierre de Ciclo 54 (1479 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 54
+recomendó (B) aplicar la metodología de contrato a `skillsApi` o `dashboardApi`. `dashboardApi` **no existe** en `lib/api.ts`
+(solo `skillsApi`), así que el candidato es `skillsApi`. Trabajo sobre código propio de Micelia
+(`tests/test_skills_manager_codex.py`); sin tocar producción (no había bug), infra, `.env` ni `uv.lock`.
+
+**Auditoría realizada (fuente de verdad = `list_skills`/`get_skill` → `_skill_to_dict` vs `interface Skill` del panel):**
+- **Envelope — SIN drift:** `list_skills` (`app/api/v1/skills.py:80`) → `{skills, count, active}`; el panel tipa
+  `skillsApi.list(): { skills: Skill[]; count: number }` (`lib/api.ts:441`). El campo `active` es un extra que el panel no lee →
+  inerte. `get_skill` (`skills.py:98`) devuelve el dict crudo de `_skill_to_dict`; el panel tipa `get(): Skill`. Ambos match.
+- **Objeto `Skill` — SIN drift (superset):** `_skill_to_dict` (`app/services/skills_manager.py:300`) emite los **10 campos exactos**
+  de `interface Skill` **más** `metadata` (extra inerte). El único remapeo de nombre es `metadata_json`→`metadata` (misma fragilidad
+  latente que `_prompt_to_dict`/`_list_to_dict`, Ciclos 52/54).
+- **Sin `response_model`:** los GET de skills devuelven el dict crudo del manager → sin enforcement de shape en runtime/OpenAPI
+  (mismo patrón que los GET de prompts, **DP-10**). El único guard posible es un test de serialización.
+- **GAP ADYACENTE (cobertura):** unión de campos asertados en los 3 tests existentes = `name, slug, is_active, usage_count,
+  updated_at, metadata` (6). Faltaban `skill_id, description, trigger_pattern, prompt_template, created_at` (5 de los 10 del panel),
+  **incluido `skill_id`** que el panel usa como key de React al listar skills → un drop/rename corrompía la vista sin cazarlo.
+
+**Hecho (1 commit atómico `test(skills)` `f4b1c66`):**
+- **`test_skill_to_dict_covers_panel_skill_contract`** + constante módulo-nivel **`PANEL_SKILL_FIELDS`** (frozenset con los 10 campos
+  EXACTOS de `frontend/src/lib/api.ts:427` `interface Skill`): asserta `PANEL_SKILL_FIELDS - result.keys()` vacío → si `_skill_to_dict`
+  dropea/renombra cualquier campo consumido por el panel, el test falla nombrando el faltante. **Espejo** de los guards de
+  `_prompt_to_dict` (C52) y `_list_to_dict` (C54). **Probado** inyectando `skill_id`→`id` en `_skill_to_dict`: el test falla; restaurado
+  producción (`git checkout` + grep confirma `"skill_id"` intacto).
+- Cambio **test-only** (no había defecto de producción): la auditoría concluyó "sin drift"; el deliverable es regresión que fija el
+  contrato micelia↔panel del router `skillsApi` (prioridad #4 coherencia + #3 cobertura con valor).
+
+**Verify:** `make verify` **100% VERDE** — lint ✓ (ruff `E,F,I,N,W`; `PANEL_SKILL_FIELDS` a módulo-nivel evita N806), typecheck ✓
+(mypy sobre `app/`, 0 errores; el test no toca `app/`), test ✓ (**1480 pass** + 2 skip, era 1479 en Ciclo 54: **+1**), cov ✓
+(**93.12%**, ≥ gate **92**; `skills_manager.py` sigue 100%). Frontend no tocado. Sin procesos residuales (tests in-process, sin
+Docker; no arranqué gateway ni infra).
+
+**Bloqueado/pendiente:** DoD v0.1 — mismos **2 ítems humano-dependientes**: (1) QA visual de los 4 flujos de frontend;
+(2) actualizar `Micelia_Nodo1_Impacto_Socioeconomico.md` con estado T0. Funnel: mitad LOCAL cerrada; mitad INFRA bloqueada por
+DP-1..DP-4.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Reafirma **DP-10**: `skillsApi` (como `promptsApi`) devuelve el dict crudo del
+manager **sin `response_model`** → el contrato con el panel se sostiene solo por tests de serialización, no por el schema
+FastAPI/OpenAPI; añadir `response_model` a los GET de skills+prompts lo blindaría en runtime + lo documentaría en OpenAPI (superficie
+acotada, 1 endpoint por commit). Siguen abiertas **DP-9** (paginación con total global), **DP-8** (canela sin `version` en
+health-check), **DP-7** (namespace `idm/vital/micelia`), **DP-6** (`user_id` en research-to-course), **DP-5** (rebrand env-vars) y las
+de INFRA del funnel (**DP-1..DP-4**).
+
+**Mañana (Ciclo 56):** el contrato de lectura de `skillsApi` (`interface Skill`) queda blindado; sigue habiendo superficie de
+`skillsApi`/`mcpApi`/`agentsApi` en `lib/api.ts` con `interface`s no auditados. Dos caminos: **(A) continuar la metodología de
+contrato** sobre el siguiente router con `interface` propio que el panel consuma — candidatos concretos = **`mcpApi` / `GET
+/api/v1/mcp/servers` → `interface MCPServer`** (`lib/api.ts:457,468`; verificar que el serializador del MCP manager casa con los 7
+campos `server_id, name, description, language, tools, status, created_at`) o **`agentsApi` → `interface AgentCrew`/`AgentRun`**
+(`lib/api.ts:485,493`). **(B)** si Jessicache aprueba **DP-10**, empezar a añadir `response_model` a los GET de prompts+skills
+(blinda en runtime+OpenAPI lo que hoy solo cubren tests), tarea de producción de superficie acotada (1 endpoint por commit).
+Preferible (A) mientras DP-10 siga pendiente. No tocar infra, `.env` ni `uv.lock`.
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-14 — Ciclo 54 (CIERRA el eje "contratos de lectura de prompts ↔ panel" (Ciclos 52–53): audito el último contrato de `promptsApi` sin blindar — **`GET /prompts/lists` y `GET /prompts/lists/{slug}` → `PromptList`** (`frontend/src/types/api.ts`), consumidos por `promptsApi.listLists()/getList()` (`lib/api.ts:358-360`). **CONCLUSIÓN: SIN drift** — `_list_to_dict` (`prompt_store.py:585`) emite **exactamente** los 10 campos de `interface PromptList` (`list_id, name, slug, description, category, content_md, is_active, created_at, updated_at, metadata`), sin extras ni faltantes (match exacto, no superset). Los endpoints casan: `/lists` → `{lists: PromptList[], count}` = `listLists()`; `/lists/{slug}` → dict crudo de `_list_to_dict` = `getList(): PromptList`. **Gap encontrado (cobertura, no correctitud):** los 2 tests de serialización (`test_list_to_dict_with_updated_at` + `test_list_to_dict_none_dates`) solo asertaban **4 de los 10** campos (`slug, created_at, updated_at, metadata`) → los otros 6 que el panel consume (`list_id, name, description, category, content_md, is_active`) quedaban **sin blindar**: un rename/drop —el remapeo silencioso `metadata_json`→`metadata`, o p.ej. `is_active`→`active`— rompería el panel pasando el verify entero. Deliverable Micelia-only: **+1 test** `test_list_to_dict_covers_panel_list_contract` + constante `PANEL_LIST_FIELDS` (fuente de verdad del panel), **espejo** de `test_prompt_to_dict_covers_panel_prompt_contract` (Ciclo 52) · **probado** que el guard caza el rename `metadata_json` y el drop de `is_active`; y que el backend hoy es match exacto (0 extras) · verify verde 1479 pass · cov 93.12% · gate 92 sin cambio)
 
 **Contexto:** `make verify` VERDE al cierre de Ciclo 53 (1478 pass, cov 93.12%) → no aplica prioridad #1 (red→green). Ciclo 53
