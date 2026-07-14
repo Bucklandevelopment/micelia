@@ -277,7 +277,17 @@ class TestNormalizeSource:
         "src", ["biohack", "canela", "ideacursi", "cybertools", "auto-mat-ion", "micelia"]
     )
     def test_canonical_sources_unchanged(self, src):
-        assert _normalize_source(src) == src
+        # Los 6 sources canónicos pasan intactos y SIN warnings. El DoD v0.1
+        # (docs/PLAN_MICELIA_v0.md §7 + riesgo #1) exige que los 5 dominios
+        # funcionales sigan siendo source-id válidos "sin warnings": solo el
+        # legacy 'idm-core' debe deprecarse. Antes el test solo comprobaba el
+        # valor de retorno (== src) y NO la ausencia de warning -> un refactor
+        # que ampliara el DeprecationWarning a cualquier source pasaría el test
+        # violando el "sin warnings" del DoD. `simplefilter("error")` hace fallar
+        # el test ante CUALQUIER warning para un canónico -> blinda esa mitad.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _normalize_source(src) == src
 
     def test_none_passes_through(self):
         # Filtro ausente en query_events -> None sin tocar.
