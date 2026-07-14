@@ -70,6 +70,17 @@ class EventCreate(BaseModel):
     payload: dict = Field(default_factory=dict, description="Datos del evento.")
     metadata: dict = Field(default_factory=dict, description="Metadatos adicionales.")
     tags: List[str] = Field(default_factory=list, description="Etiquetas opcionales.")
+    correlation_id: Optional[UUID] = Field(
+        default=None,
+        description=(
+            "Correlaciona eventos de un mismo flujo de trabajo. Opcional: los SDK "
+            "de dominio biohack/cybertools lo emiten vía `publish_event(..., "
+            "correlation_id=...)` (`VitalEvent.to_dict()`); canela/codking/auto-mat-ion "
+            "no lo mandan. El EventStore lo persiste indexado y `GET /events/"
+            "by-correlation/{id}` lo consulta — sin este campo se perdía en el ingest "
+            "(Pydantic extra='ignore') y la traza quedaba siempre vacía (DP-8 / Ciclo 43)."
+        ),
+    )
 
 
 @router.get("")
@@ -187,7 +198,8 @@ async def create_event(
         event_type=event.event_type,
         payload=event.payload,
         event_metadata=event.metadata,
-        tags=event.tags
+        tags=event.tags,
+        correlation_id=event.correlation_id,
     )
 
     return {

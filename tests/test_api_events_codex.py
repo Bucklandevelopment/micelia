@@ -239,6 +239,40 @@ async def test_create_event_happy_forwards_all_fields():
     assert kwargs["source"] == "biohack"
     assert kwargs["event_metadata"] == {"device": "watch"}
     assert kwargs["tags"] == ["a", "b"]
+    # Sin correlation_id en el body → se propaga None (canela/codking/auto-mat-ion).
+    assert kwargs["correlation_id"] is None
+
+
+async def test_create_event_forwards_correlation_id():
+    # biohack/cybertools POST `VitalEvent.to_dict()` con `correlation_id` cuando
+    # el emisor lo fija. Debe llegar a `append_event` para que la traza
+    # `GET /events/by-correlation/{id}` encuentre el evento (Ciclo 43).
+    cid = uuid4()
+    store = fake_store(append_event=uuid4())
+    body = {
+        "category": "security",
+        "source": "cybertools",
+        "action": "analyze",
+        "event_type": "security.alert",
+        "correlation_id": str(cid),
+    }
+    async with client_for(build_app(store)) as ac:
+        resp = await ac.post("/api/v1/events", json=body, headers=AUTH)
+    assert resp.status_code == 200
+    assert store.append_event.call_args.kwargs["correlation_id"] == cid
+
+
+async def test_create_event_invalid_correlation_id_422():
+    body = {
+        "category": "health",
+        "source": "biohack",
+        "action": "create",
+        "event_type": "health.vitals.create",
+        "correlation_id": "not-a-uuid",
+    }
+    async with client_for(build_app(fake_store())) as ac:
+        resp = await ac.post("/api/v1/events", json=body, headers=AUTH)
+    assert resp.status_code == 422
 
 
 async def test_create_event_missing_required_field_422():
