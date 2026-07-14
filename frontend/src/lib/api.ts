@@ -7,6 +7,7 @@ import type {
   HealthDetailedResponse,
   IdmEvent,
   IdmEventsResponse,
+  EventStatsResponse,
   SystemInfoResponse,
   AIStatusResponse,
   Prompt,
@@ -214,7 +215,7 @@ export const eventsApi = {
 
   categories: () => fetchApi<{ categories: string[] }>('/events/categories'),
 
-  stats: () => fetchApi<{ total: number; by_category: Record<string, number> }>('/events/stats'),
+  stats: () => fetchApi<EventStatsResponse>('/events/stats'),
 
   timeline: (date: string) =>
     fetchApi<{ events: IdmEvent[] }>(`/events/timeline/${date}`),

@@ -315,15 +315,20 @@ const eventsHandlers = [
     const limit = Number(url.searchParams.get('limit') ?? 50)
     const offset = Number(url.searchParams.get('offset') ?? 0)
     const category = url.searchParams.get('category')
+    const subcategory = url.searchParams.get('subcategory')
 
     let filtered = mockEvents
     if (category) filtered = filtered.filter((e) => e.category === category)
+    // subcategory: filtro cableado en el backend en Ciclo 45; el mock lo imita.
+    if (subcategory) filtered = filtered.filter((e) => e.subcategory === subcategory)
 
+    // Shape REAL del backend: `{events, count, limit, offset}` (NO `{total, page}`).
+    const events = filtered.slice(offset, offset + limit)
     return HttpResponse.json({
-      events: filtered.slice(offset, offset + limit),
-      total: filtered.length,
-      page: Math.floor(offset / limit) + 1,
+      events,
+      count: events.length,
       limit,
+      offset,
     })
   }),
 
@@ -346,12 +351,21 @@ const eventsHandlers = [
     })
   ),
 
-  http.get('/api/v1/events/stats', () =>
-    HttpResponse.json({
-      total: mockEvents.length,
-      by_category: { health: 1, system: 1, research: 1 },
+  http.get('/api/v1/events/stats', ({ request }) => {
+    // Shape REAL del backend (`get_event_stats`): wrapper `{period_days, since,
+    // stats}` con la agregación anidada bajo `stats` (total_events + by_category
+    // + by_source), NO el `{total, by_category}` plano de antes (Ciclo 46).
+    const days = Number(new URL(request.url).searchParams.get('days') ?? 7)
+    return HttpResponse.json({
+      period_days: days,
+      since: now(),
+      stats: {
+        total_events: mockEvents.length,
+        by_category: { health: 1, system: 1, research: 1 },
+        by_source: { biohack: 1, micelia: 1, canela: 1 },
+      },
     })
-  ),
+  }),
 ]
 
 // ---------------------------------------------------------------------------

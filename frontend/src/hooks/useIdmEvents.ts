@@ -29,9 +29,13 @@ export function useInfiniteIdmEvents(options: UseIdmEventsOptions = {}) {
       eventsApi.list({ category, limit, offset: pageParam as number }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
-      const totalFetched = allPages.reduce((sum, page) => sum + page.events.length, 0)
-      if (totalFetched >= lastPage.total) return undefined
-      return totalFetched
+      // El backend (`GET /api/v1/events`) NO devuelve un total global, solo
+      // `count` = tamaño de la página actual. Paramos cuando la última página
+      // trae menos de `limit` (señal de que no hay más). Antes se leía
+      // `lastPage.total`, campo que el backend nunca envía → paginación rota
+      // (Ciclo 46).
+      if (lastPage.count < limit) return undefined
+      return allPages.reduce((sum, page) => sum + page.events.length, 0)
     },
     refetchInterval: 60000,
     staleTime: 30000,

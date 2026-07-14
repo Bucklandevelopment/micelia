@@ -96,11 +96,27 @@ export interface IdmEvent {
   compute_latency_ms: number | null
 }
 
+// Contrato REAL de `GET /api/v1/events` (backend `app/api/v1/events.py::list_events`):
+// `{events, count, limit, offset}`. `count` = tamaño de la página actual
+// (`len(events)`), NO un total global — el backend no devuelve total agregado.
+// (Ciclo 46: antes se declaraba `{total, page}`, que el backend nunca envía.)
 export interface IdmEventsResponse {
   events: IdmEvent[]
-  total: number
-  page: number
+  count: number
   limit: number
+  offset: number
+}
+
+// Contrato REAL de `GET /api/v1/events/stats` (backend `get_event_stats`):
+// wrapper `{period_days, since, stats}` con la agregación anidada bajo `stats`.
+export interface EventStatsResponse {
+  period_days: number
+  since: string
+  stats: {
+    total_events: number
+    by_category: Record<string, number>
+    by_source: Record<string, number>
+  }
 }
 
 // ============ System Types ============
