@@ -58,7 +58,11 @@ class PromptListUpdate(BaseModel):
 
 
 class PromptClassify(BaseModel):
-    category: str
+    # El botón "Classify" del inbox (frontend/src/components/prompts/InboxPanel.tsx)
+    # envía body vacío `{}` (auto-clasificar: mueve captured -> classified sin que el
+    # humano elija categoría). `category` debe tener default o el panel recibe 422.
+    # Default `"note"` = mismo bucket por defecto que PromptCreate.category.
+    category: str = "note"
     tags: List[str] = []
     workflow: str = "quick_execute"
     provider_policy: str = "free-first"

@@ -304,6 +304,28 @@ async def test_classify_wrong_status_400():
     assert r.status_code == 400
 
 
+# El botón "Classify" del inbox (InboxPanel.tsx:135) llama
+# classify.mutate({ id, data: {} }) -> POST /classify con body VACÍO `{}` (el tipo
+# del panel es `{ category?, tags? }`, ambos opcionales). Si el backend vuelve a
+# exigir `category` sin default, ese botón regresa a 422. Guarda el contrato del panel.
+PANEL_CLASSIFY_EMPTY_BODY: dict = {}
+
+
+async def test_classify_accepts_panel_empty_body():
+    store = _store(get_prompt={"status": "captured"}, classify_prompt=True)
+    app = build_app(store)
+    async with client_for(app) as c:
+        r = await c.post(
+            f"/api/v1/prompts/{uuid4()}/classify",
+            json=PANEL_CLASSIFY_EMPTY_BODY,
+            headers=AUTH,
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"success": True, "status": "classified"}
+    # Body vacío -> el store recibe la categoría por defecto ("note"), no un 422.
+    assert store.classify_prompt.await_args.kwargs["category"] == "note"
+
+
 async def test_stage_ok():
     app = build_app(_store(stage_prompt=True))
     async with client_for(app) as c:
