@@ -202,6 +202,32 @@ async def test_update_skill_ok():
     manager.update_skill.assert_awaited_once_with("greet", {"description": "new"})
 
 
+# El form de EDITAR skill (SkillForm en skills/page.tsx) esparce el `form` completo en
+# mutate(form), así que `description` viaja SIEMPRE presente; con el input vacío manda
+# `description: ""`. Antes daba 422 (SkillUpdate.description tenía min_length=1); ahora
+# debe dar 200 y persistir "" (exclude_none lo deja pasar por no ser None). Espejo del
+# guard PANEL_CREATE_SKILL_NO_DESCRIPTION de C60, en el eje UPDATE.
+PANEL_EDIT_SKILL_EMPTY_DESCRIPTION = {
+    "name": "Greet",
+    "description": "",
+    "trigger_pattern": "^hi",
+    "prompt_template": "Say hi: {content}",
+}
+
+
+async def test_update_skill_accepts_panel_empty_description():
+    manager = fake_manager()
+    async with client_for(build_app(manager=manager)) as ac:
+        resp = await ac.patch(
+            "/api/v1/skills/greet",
+            json=PANEL_EDIT_SKILL_EMPTY_DESCRIPTION,
+            headers=AUTH,
+        )
+    assert resp.status_code == 200, resp.text
+    # description="" NO es None -> exclude_none lo conserva y llega al manager intacto.
+    assert manager.update_skill.await_args.args[1]["description"] == ""
+
+
 async def test_update_skill_empty_body_400():
     async with client_for(build_app(manager=fake_manager())) as ac:
         resp = await ac.patch("/api/v1/skills/greet", json={}, headers=AUTH)

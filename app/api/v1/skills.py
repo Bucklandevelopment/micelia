@@ -43,7 +43,13 @@ class SkillCreate(BaseModel):
 
 class SkillUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    description: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    # El form de editar skill (SkillForm en skills/page.tsx) esparce el `form` entero
+    # en mutate(form), así que `description` viaja SIEMPRE presente; handleSubmit solo
+    # exige name/trigger_pattern/prompt_template, no description -> puede enviar "".
+    # min_length=1 rechazaba ese "" presente con 422 (editar una skill y vaciar la
+    # descripción fallaba). Sin min_length: "" es válido y se persiste (exclude_none lo
+    # deja pasar por no ser None). Consistente con SkillCreate.description (C60).
+    description: Optional[str] = Field(default=None, max_length=2000)
     trigger_pattern: Optional[str] = Field(default=None, min_length=1, max_length=500)
     prompt_template: Optional[str] = Field(default=None, min_length=1)
     metadata_json: Optional[dict] = None
