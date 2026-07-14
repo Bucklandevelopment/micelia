@@ -411,6 +411,42 @@ class TestGetTimeline:
         results = await store.get_timeline(datetime(2026, 7, 13))
         assert results == []
 
+    @pytest.mark.asyncio
+    async def test_get_timeline_range_is_utc_naive_day(self, store, mock_session):
+        # Coherencia de timezone (Ciclo 48): el rango del timeline debe ser
+        # exactamente [medianoche, medianoche+1día) NAIVE (referencia naive-UTC,
+        # igual que utcnow_naive() al persistir). Ni strptime/combine/min.time()
+        # consultan la TZ local -> no hay desalineación de día. Blinda que el
+        # rango no derive a offset con TZ ni a una ventana != 1 día.
+        mock_session.execute = AsyncMock(return_value=_scalars_result([]))
+        _bind(store, mock_session)
+
+        await store.get_timeline(datetime(2026, 7, 13))
+
+        stmt = mock_session.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "2026-07-13 00:00:00" in compiled  # start = medianoche del día
+        assert "2026-07-14 00:00:00" in compiled  # end   = +1 día, exacto
+        assert "+00:00" not in compiled  # naive: sin offset de TZ
+        assert "+0000" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_get_timeline_floors_datetime_with_time_to_midnight(
+        self, store, mock_session
+    ):
+        # Defensividad de date.date(): un datetime con componente horario se
+        # pisa a medianoche del mismo día -> el rango sigue anclado a las 00:00.
+        mock_session.execute = AsyncMock(return_value=_scalars_result([]))
+        _bind(store, mock_session)
+
+        await store.get_timeline(datetime(2026, 7, 13, 15, 30, 45))
+
+        stmt = mock_session.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "2026-07-13 00:00:00" in compiled
+        assert "2026-07-14 00:00:00" in compiled
+        assert "15:30:45" not in compiled  # la hora de entrada no filtra al rango
+
 
 # ---------------------------------------------------------------------------
 # get_stats
