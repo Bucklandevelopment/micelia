@@ -104,6 +104,84 @@ async def test_check_health_recovery_path(registry):
     assert registry.services["health"].healthy is True
 
 
+# Contrato de version del health-body, auditado leyendo el handler REAL de cada
+# dominio hermano (Ciclo 67, 2026-07-15). `_check_health` extrae la versión con
+# `data.get("version")` (service_registry.py:184): los dominios que la emiten a
+# nivel superior la exponen en el panel; canela NO la emite -> queda None por
+# lectura defensiva (DP-8). Cada cuerpo reproduce los campos reales del handler
+# para que un cambio de contrato en un dominio rompa este pin. Los tests previos
+# cubren version-presente (`..._ok_sets_healthy_and_version`), json-inválido
+# (`..._bad_json_is_ignored`) y propagación None en check_service; NINGUNO pinea
+# el caso canela real (200 con JSON válido que SIMPLEMENTE OMITE `version`) en el
+# borde de _check_health -> esta parametrización lo cierra.
+_AUDITED_HEALTH_BODIES = {
+    # biohack-app/backend/main.py:217 -> "version": "0.1.0" a nivel superior
+    "biohack": (
+        {
+            "status": "healthy",
+            "version": "0.1.0",
+            "service": "biohack-app",
+            "capabilities": ["healthkit-import", "bio-savant-ai"],
+            "dependencies": {"database": "connected"},
+        },
+        "0.1.0",
+    ),
+    # cybertools/src/scanet/api.py:139 -> "version": SERVICE_VERSION
+    "cybertools": (
+        {
+            "status": "ok",
+            "service": "scanet",
+            "version": "0.1.0",
+            "timestamp": "2026-07-15T00:00:00Z",
+            "dependencies": {},
+        },
+        "0.1.0",
+    ),
+    # ideacursi-tool/backend/src/health/health.controller.js:73 -> version: '0.1.0'
+    "ideacursi": (
+        {
+            "status": "healthy",
+            "version": "0.1.0",
+            "service": "ideacursi-tool",
+            "category": "education",
+            "port": 5050,
+            "capabilities": ["courses", "quizzes"],
+            "dependencies": {},
+        },
+        "0.1.0",
+    ),
+    # canela-molida/app/main.py:540 -> return SIN "version" a nivel superior (DP-8)
+    "canela": (
+        {
+            "status": "healthy",
+            "embedding_model": "BAAI/bge-m3",
+            "embedding_cache": {"hits": 1500, "misses": 50, "size": 1550},
+            "vectorstore": {"num_documents": 5000},
+        },
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("domain", list(_AUDITED_HEALTH_BODIES))
+async def test_check_health_version_matches_audited_domain_body(registry, domain):
+    body, expected = _AUDITED_HEALTH_BODIES[domain]
+    registry.client.get.return_value = _resp(200, body)
+    ok = await registry._check_health("health", "/health")
+    assert ok is True
+    assert registry.services["health"].healthy is True
+    # Mutación: si canela empieza a emitir `version`, o si alguien "arregla"
+    # _check_health para defaultear la versión ausente (p.ej. get("version",
+    # "unknown")), este pin rompe y obliga a re-auditar el handler del dominio
+    # ANTES de cambiar la expectativa (mismo protocolo que el pin de
+    # HEALTH_ENDPOINTS de C66).
+    assert registry.services["health"].version == expected, (
+        f"El contrato de `version` del health-body de {domain} divergió del "
+        f"auditado (Ciclo 67); re-verifica su handler (ver comentario con "
+        f"file:line) antes de tocar este pin."
+    )
+
+
 # --------------------------------------------------------------------------
 # _log_failure (static, level-selection branches)
 # --------------------------------------------------------------------------
