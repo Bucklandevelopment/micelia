@@ -27,10 +27,12 @@ Método = arrancar el sistema de verdad, no leer el código: replica lo que hace
 `run-local.sh` pero in-process y determinista, sin ocupar el puerto 8888 ni RAM extra.
 """
 
+import httpx
 from starlette.testclient import TestClient
 
 from app.core.config import settings
 from app.main import app
+from app.services.frangels.orchestrator import get_frangels_orchestrator
 
 _DOMAIN_KEYS = {"health", "research", "education", "security"}
 
@@ -80,6 +82,35 @@ def test_gateway_boots_and_degrades_gracefully_without_infra():
 
     # (4) Tras el shutdown, el fix(main) de C69 cancela la tarea de monitoreo.
     assert registry._monitoring_task.done()
+
+
+def test_frangels_orchestrator_client_closed_after_shutdown():
+    """El shutdown del lifespan cierra el cliente httpx propio del orquestador Frangels.
+
+    Guard de regresión del `fix(main)` de C70. `FrangelsOrchestrator._get_client`
+    cachea un `httpx.AsyncClient` en el singleton (aparte del http_client compartido
+    del gateway) que ningún cleanup cerraba → transport/pool sin liberar en cada
+    shutdown/reload, atados a un event loop ya cerrado (misma clase de bug que la
+    tarea de monitoreo huérfana de C69).
+
+    El cliente es LAZY (solo existe si algún endpoint de frangels lo ejercitó), así que
+    lo forzamos con `_get_client()` mientras el gateway corre, y verificamos que el
+    shutdown lo deja cerrado. Mutación: quitar `await frangels_orch.aclose()` del
+    lifespan deja `is_closed` en False y este test falla nombrando el contrato.
+    """
+    orch = get_frangels_orchestrator()
+    # Simular el cliente perezoso que un `.chat()`/`.test()` de frangels dejaría
+    # cacheado en el singleton (`_get_client` hace exactamente esta asignación).
+    # Es un cliente idle (sin request emitido), como el que sobrevive a un shutdown.
+    orch._client = httpx.AsyncClient(timeout=60)
+    assert not orch._client.is_closed
+
+    with TestClient(app):
+        # Mientras el gateway corre, el cliente propio del orquestador sigue abierto.
+        assert not orch._client.is_closed
+
+    # Tras el shutdown, el `aclose()` del lifespan (fix C70) lo deja cerrado.
+    assert orch._client.is_closed
 
 
 def test_gateway_openapi_wired_after_real_boot():
