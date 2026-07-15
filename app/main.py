@@ -258,6 +258,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if user_store:
         await user_store.close()
 
+    # Cancelar el monitoreo continuo del registry ANTES de cerrar el http_client
+    # que ese loop usa: `discover_services` arranca `_continuous_monitoring` como
+    # tarea de fondo (sondeo cada _check_interval s) pero el cleanup nunca la
+    # paraba → tarea huérfana en cada shutdown/reload y posible uso del cliente
+    # tras `aclose()`. `stop_monitoring()` es no-op si no hay tarea.
+    if service_registry:
+        await service_registry.stop_monitoring()
+
     await http_client.aclose()
     await event_bus.disconnect()
     if event_store:
