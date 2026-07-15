@@ -266,6 +266,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if service_registry:
         await service_registry.stop_monitoring()
 
+    # Cerrar el cliente httpx propio del orquestador Frangels: `_get_client` cachea
+    # un AsyncClient en el singleton (aparte del http_client compartido) que ningún
+    # cleanup cerraba → transport/pool sin liberar en cada shutdown/reload. No-op si
+    # nunca se creó (ningún endpoint de frangels ejercido en esta sesión).
+    await frangels_orch.aclose()
+
     await http_client.aclose()
     await event_bus.disconnect()
     if event_store:

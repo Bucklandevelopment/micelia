@@ -55,6 +55,17 @@ class FrangelsOrchestrator:
             self._client = httpx.AsyncClient(timeout=60)
         return self._client
 
+    async def aclose(self) -> None:
+        """Cierra el cliente HTTP reutilizable (llamar en el shutdown del lifespan).
+
+        `_get_client` cachea un `httpx.AsyncClient` propio en el singleton, aparte del
+        cliente compartido del gateway. Sin este cierre, el cliente queda abierto en cada
+        shutdown/reload (transport + pool sin liberar), atado a un event loop ya cerrado.
+        No-op si nunca se creó o ya está cerrado.
+        """
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+
     def get_configured_providers(self) -> Dict[str, Dict[str, Any]]:
         """Obtiene estado de todos los proveedores"""
         result = {}
