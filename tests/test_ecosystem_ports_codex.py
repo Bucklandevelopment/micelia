@@ -1,0 +1,116 @@
+"""
+Tripwire de coherencia entre el LAUNCHER nativo del ecosistema y el HUB del panel.
+
+Contexto (Ciclo 71→72): una misma pasada del día creó dos artefactos acoplados por
+un mapa de puertos que vive DUPLICADO y sin ningún guard:
+
+  * `scripts/run-ecosystem.sh` — bindea cada frontend de dominio en un puerto fijo
+    (tabla `SERVICES`, columna 4): biohack-fe:5173, canela:8501, ideacursi:6060,
+    codking-vis:3009, automation:8891.
+  * `frontend/src/lib/services.ts` — la página `/servicios` (hub) enlaza cada tarjeta
+    a `NEXT_PUBLIC_*_URL || 'http://localhost:<puerto>'`, con el MISMO puerto por
+    default para que el botón "Abrir…" caiga sobre el servicio que el launcher levantó.
+
+Hoy los dos mapas coinciden, pero NADA lo verifica: cambiar un puerto en un solo
+fichero (p.ej. `codking-vis` 3009→3010 en el launcher, sin tocar `services.ts`)
+dejaría el botón del hub apuntando a un puerto muerto —404 silencioso— sin romper
+ni un test ni el `tsc` (la unión de tipos de `registryKey` no cubre el puerto). No
+hay runner de frontend (solo lint+tsc), así que este pin en la suite de pytest
+—que `make verify` sí ejecuta— es el único lugar donde el drift se caza.
+
+`cybertools` (hub → :8000/docs) queda FUERA del acoplamiento a propósito: no tiene
+SPA (`tieneWebUI:false`) y `run-ecosystem.sh` NO lo arranca como frontend; su tarjeta
+enlaza a la API docs, no a un dev-server que el launcher bindee. `codking-be` (:8000,
+opt-in) tampoco es un frontend del hub. Solo se pinea la correspondencia real
+frontend-launcher ↔ tarjeta-hub (5 dominios).
+"""
+
+import re
+from pathlib import Path
+
+import pytest
+
+_REPO = Path(__file__).resolve().parent.parent
+_LAUNCHER = _REPO / "scripts" / "run-ecosystem.sh"
+_SERVICES_TS = _REPO / "frontend" / "src" / "lib" / "services.ts"
+
+# id de tarjeta en services.ts  ->  id de servicio en la tabla SERVICES del launcher.
+# Solo dominios con frontend que el launcher arranca Y el hub enlaza.
+_HUB_TO_LAUNCHER = {
+    "biohack": "biohack-fe",
+    "canela": "canela",
+    "ideacursi": "ideacursi",
+    "codking": "codking-vis",
+    "automation": "automation",
+}
+
+
+def _launcher_ports() -> dict[str, int]:
+    """id -> puerto, parseado de la tabla `SERVICES` (líneas `id|label|dir|puerto|...`)."""
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    ports: dict[str, int] = {}
+    for m in re.finditer(r"^([a-z0-9-]+)\|[^|\n]*\|[^|\n]*\|(\d+)\|", text, re.MULTILINE):
+        ports[m.group(1)] = int(m.group(2))
+    return ports
+
+
+def _hub_default_ports() -> dict[str, int]:
+    """id de tarjeta -> puerto del default `http://localhost:<puerto>` en services.ts."""
+    text = _SERVICES_TS.read_text(encoding="utf-8")
+    ports: dict[str, int] = {}
+    for m in re.finditer(
+        r"id:\s*'([^']+)'[\s\S]*?localhost:(\d+)", text
+    ):
+        # finditer no solapa: cada bloque de tarjeta se empareja con SU primer localhost.
+        ports.setdefault(m.group(1), int(m.group(2)))
+    return ports
+
+
+def test_launcher_and_hub_files_exist():
+    assert _LAUNCHER.is_file(), f"falta el launcher del ecosistema: {_LAUNCHER}"
+    assert _SERVICES_TS.is_file(), f"falta el catálogo del hub: {_SERVICES_TS}"
+
+
+def test_parsers_are_not_vacuously_empty():
+    """Si un parser deja de encontrar entradas, el pin de abajo pasaría en vacío."""
+    launcher = _launcher_ports()
+    hub = _hub_default_ports()
+    assert "biohack-fe" in launcher and "automation" in launcher, launcher
+    assert "biohack" in hub and "cybertools" in hub, hub
+
+
+@pytest.mark.parametrize("hub_id,launcher_id", sorted(_HUB_TO_LAUNCHER.items()))
+def test_hub_default_port_matches_launcher_bind_port(hub_id: str, launcher_id: str):
+    """
+    El puerto por default de la tarjeta del hub == puerto que el launcher bindea.
+
+    Mutación: cambia `codking-vis|...|3009` a `3010` en run-ecosystem.sh (sin tocar
+    services.ts) y este test falla nombrando ambos ficheros. Actualízalos en lockstep.
+    """
+    launcher = _launcher_ports()
+    hub = _hub_default_ports()
+    assert hub_id in hub, f"'{hub_id}' no está en services.ts (¿renombrada la tarjeta?)"
+    assert launcher_id in launcher, (
+        f"'{launcher_id}' no está en la tabla SERVICES de run-ecosystem.sh "
+        f"(¿renombrado el servicio?)"
+    )
+    assert hub[hub_id] == launcher[launcher_id], (
+        f"DRIFT de puerto para '{hub_id}': el hub (frontend/src/lib/services.ts) "
+        f"enlaza a :{hub[hub_id]} pero run-ecosystem.sh arranca '{launcher_id}' en "
+        f":{launcher[launcher_id]}. El botón del hub caería en un puerto muerto. "
+        f"Actualiza ambos ficheros en lockstep."
+    )
+
+
+def test_cybertools_is_documented_as_not_launched_frontend():
+    """
+    Guard del razonamiento de exclusión: cybertools tiene tarjeta en el hub (:8000/docs)
+    pero NO es un frontend que run-ecosystem.sh arranque. Si algún día el launcher
+    empieza a bindear un `cybertools`/`cybertools-fe`, hay que meterlo en el mapa de
+    arriba y este recordatorio debe revisarse.
+    """
+    launcher = _launcher_ports()
+    assert "cybertools" not in launcher and "cybertools-fe" not in launcher, (
+        "run-ecosystem.sh ahora arranca cybertools como servicio: añade la "
+        "correspondencia a _HUB_TO_LAUNCHER y ajusta este test."
+    )
