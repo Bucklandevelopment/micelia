@@ -33,6 +33,7 @@ import pytest
 _REPO = Path(__file__).resolve().parent.parent
 _LAUNCHER = _REPO / "scripts" / "run-ecosystem.sh"
 _SERVICES_TS = _REPO / "frontend" / "src" / "lib" / "services.ts"
+_ENV_EXAMPLE = _REPO / "frontend" / ".env.local.example"
 
 # id de tarjeta en services.ts  ->  id de servicio en la tabla SERVICES del launcher.
 # Solo dominios con frontend que el launcher arranca Y el hub enlaza.
@@ -100,6 +101,57 @@ def test_hub_default_port_matches_launcher_bind_port(hub_id: str, launcher_id: s
         f":{launcher[launcher_id]}. El botón del hub caería en un puerto muerto. "
         f"Actualiza ambos ficheros en lockstep."
     )
+
+
+def _services_ts_default_urls() -> dict[str, str]:
+    """NEXT_PUBLIC_*_URL -> URL por default en el `|| '...'` de services.ts."""
+    text = _SERVICES_TS.read_text(encoding="utf-8")
+    urls: dict[str, str] = {}
+    for m in re.finditer(
+        r"process\.env\.(NEXT_PUBLIC_\w+)\s*\|\|\s*'([^']+)'", text
+    ):
+        urls[m.group(1)] = m.group(2)
+    return urls
+
+
+def _env_example_urls() -> dict[str, str]:
+    """NEXT_PUBLIC_*_URL -> valor documentado en frontend/.env.local.example."""
+    text = _ENV_EXAMPLE.read_text(encoding="utf-8")
+    urls: dict[str, str] = {}
+    for m in re.finditer(
+        r"^(NEXT_PUBLIC_\w+)=(\S+)$", text, re.MULTILINE
+    ):
+        urls[m.group(1)] = m.group(2)
+    return urls
+
+
+def test_env_example_documents_the_same_defaults_as_services_ts():
+    """
+    Tercer vértice del mapa: el default embebido en services.ts (el `|| '...'` que se
+    usa cuando la env-var no está definida) debe coincidir con lo que
+    frontend/.env.local.example documenta como valor de esa misma var. Un dev que
+    copia el .env.local.example espera que refleje los defaults del código; si uno
+    cambia y el otro no, el ejemplo miente. Se comparan URLs completas (incluye el
+    sufijo `/docs` de cybertools, no solo el puerto).
+
+    Mutación: cambia NEXT_PUBLIC_CODKING_URL en el .env.local.example (sin tocar
+    services.ts) y este test falla nombrando ambos ficheros.
+    """
+    ts = _services_ts_default_urls()
+    env = _env_example_urls()
+    assert ts, "no se parseó ningún default de services.ts"
+    assert env, "no se parseó ninguna var de .env.local.example"
+    # Toda var NEXT_PUBLIC_*_URL con default en services.ts debe estar documentada
+    # con el MISMO valor en el .env.local.example.
+    for var, default_url in sorted(ts.items()):
+        assert var in env, (
+            f"{var} tiene default en services.ts ('{default_url}') pero no está "
+            f"documentada en frontend/.env.local.example. Añádela o el ejemplo queda cojo."
+        )
+        assert env[var] == default_url, (
+            f"DRIFT de default para {var}: services.ts usa '{default_url}' pero "
+            f".env.local.example documenta '{env[var]}'. Actualiza ambos en lockstep."
+        )
 
 
 def test_cybertools_is_documented_as_not_launched_frontend():
