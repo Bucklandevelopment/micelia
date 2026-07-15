@@ -44,7 +44,15 @@ RUN mkdir -p /app/data /app/logs /app/models
 # Puerto
 EXPOSE 8888
 
-# Health check
+# Health check.
+# NOTA (DP-13, cerrada Ciclo 75): bajo podman/OCI —el runtime que usan TODOS los
+# targets del Makefile— este HEALTHCHECK se IGNORA ("HEALTHCHECK is not supported for
+# OCI image format and will be ignored", observado al construir la imagen en C73). La
+# sonda LOAD-BEARING que gobierna `depends_on: condition: service_healthy` es la del
+# servicio en docker-compose.yml (idéntica a esta), NO esta. Esta línea solo actuaría
+# en un `podman/docker run` bare del contenedor, que el flujo del ecosistema no usa.
+# Se mantiene por si se construye con `--format docker` o se corre bare; ambas sondas
+# quedan pineadas en lockstep por tests/test_deploy_contract_codex.py.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8888/api/v1/health || exit 1
 

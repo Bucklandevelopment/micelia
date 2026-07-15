@@ -220,3 +220,33 @@ def test_healthcheck_path_matches_served_route():
         f"DRIFT: el healthcheck de compose consulta '{comp_path}' pero el gateway "
         f"sirve health en '{served}'. Actualiza docker-compose.yml."
     )
+
+
+def test_compose_healthcheck_is_the_load_bearing_probe():
+    """
+    DP-13 (cerrada Ciclo 75): bajo podman/OCI —el runtime de TODOS los targets del
+    Makefile— el HEALTHCHECK del Dockerfile se IGNORA. La sonda que de verdad gobierna
+    `depends_on: condition: service_healthy` de los dominios es la del servicio del
+    gateway en docker-compose.yml. Este test pinea que esa sonda LOAD-BEARING existe,
+    con un mensaje claro si alguien la borra (en vez de un KeyError incidental del
+    parser). El Dockerfile mantiene la suya en lockstep para el caso `run` bare, pero
+    la de compose es la crítica.
+
+    Mutación: borra el bloque `healthcheck:` del servicio idm-core en compose → falla
+    aquí. En real, sin esa sonda, `depends_on: service_healthy` nunca se cumpliría o
+    arrancaría los dominios contra un gateway aún no listo.
+    """
+    data = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+    svc = data["services"][_GATEWAY_SERVICE]
+    hc = svc.get("healthcheck")
+    assert hc and hc.get("test"), (
+        f"el servicio '{_GATEWAY_SERVICE}' NO define un healthcheck en compose. Es la "
+        f"sonda LOAD-BEARING bajo podman/OCI (el HEALTHCHECK del Dockerfile se ignora "
+        f"ahí); sin ella `depends_on: condition: service_healthy` se rompe. Restáurala."
+    )
+    # Debe ser un curl a la ruta de health servida (ya cubierto por el test de path,
+    # pero lo re-afirmamos aquí para que este pin sea autocontenido).
+    assert "curl" in " ".join(hc["test"]), (
+        "el healthcheck load-bearing del gateway debería sondear con curl la ruta de "
+        "health; si cambió de mecanismo, revisa que siga probando /api/v1/health."
+    )

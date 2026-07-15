@@ -136,6 +136,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Sonda LOAD-BEARING del gateway (DP-13, cerrada C75): bajo podman/OCI el
+    # HEALTHCHECK del Dockerfile se ignora, así que ESTA es la que de verdad gobierna
+    # `depends_on: condition: service_healthy` de los dominios. No la quites sin mover
+    # su rol al Dockerfile. Pineada por tests/test_deploy_contract_codex.py.
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/api/v1/health"]
       interval: 30s
