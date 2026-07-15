@@ -143,10 +143,14 @@ services:
       retries: 3
 
   # idm-core Dashboard (Next.js 14)
+  # Build desde la RAÍZ de projects (context: ..) para incluir el design-system
+  # compartido (projects/design-system/) del que dependen tailwind.config.js y
+  # globals.css. Ver micelia/frontend/Dockerfile.root. Pineado por
+  # tests/test_deploy_frontend_codex.py.
   idm-dashboard:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: micelia/frontend/Dockerfile.root
     container_name: idm-dashboard
     profiles: ["full", "dashboard"]
     restart: unless-stopped

@@ -1,6 +1,14 @@
 # =============================================================================
 # IDM-Core Dashboard (Next.js 14) - Dockerfile
 # =============================================================================
+# ⚠️  NO construye con `context: ./frontend`. Desde el retheme del design-system
+# (2026-06-20), `tailwind.config.js` y `src/app/globals.css` importan el
+# design-system compartido en `projects/design-system/`, que queda FUERA de este
+# contexto → `next build` falla con "Cannot find module
+# '../../design-system/tailwind.preset.cjs'". Para construir el dashboard usa
+# `Dockerfile.root` desde la raíz de projects (así lo hace micelia/docker-compose.yml
+# → idm-dashboard). Este fichero se conserva solo como referencia histórica.
+# =============================================================================
 
 # ---------------------------------------------------------------------------
 # Stage 1: Builder - install deps and build the Next.js app

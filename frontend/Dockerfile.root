@@ -1,0 +1,66 @@
+# =============================================================================
+# Micelia Dashboard (Next.js 14) — PROJECTS-ROOT build context variant
+# =============================================================================
+# El Dockerfile hermano (`frontend/Dockerfile`, contexto = ./frontend) YA NO puede
+# construir: desde el retheme del design-system (2026-06-20) tanto
+# `tailwind.config.js` (`require('../../design-system/tailwind.preset.cjs')`) como
+# `src/app/globals.css` (`@import "../../../../design-system/tokens.css"`) dependen
+# del design-system COMPARTIDO en `projects/design-system/`, que está FUERA del
+# contexto `./frontend`. Este Dockerfile se construye desde la RAÍZ de projects
+# (`context: ..` en docker-compose.yml) para que ese design-system esté disponible.
+#
+# Uso (desde micelia/docker-compose.yml, servicio idm-dashboard):
+#   build: { context: .., dockerfile: micelia/frontend/Dockerfile.root }
+#
+# El design-system solo se necesita en BUILD-TIME (el preset de Tailwind y el
+# @import de tokens se hornean en `.next`); la etapa de producción no lo copia.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Builder — instala deps y construye el bundle de Next.js
+# ---------------------------------------------------------------------------
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# El design-system compartido DEBE estar presente para resolver los imports
+# `../../design-system` (tailwind) y `../../../../design-system` (globals.css).
+COPY design-system ./design-system
+COPY micelia/frontend ./micelia/frontend
+
+WORKDIR /app/micelia/frontend
+
+ENV NEXT_TELEMETRY_DISABLED=1
+# Algunos componentes leen NEXT_PUBLIC_ en build-time.
+ENV NEXT_PUBLIC_IDM_CORE_URL=http://idm-core:8888
+
+RUN npm install && npm run build
+
+# ---------------------------------------------------------------------------
+# Stage 2: Production — imagen runtime mínima (sin design-system)
+# ---------------------------------------------------------------------------
+FROM node:18-alpine AS production
+
+WORKDIR /app/micelia/frontend
+
+# curl para el healthcheck
+RUN apk add --no-cache curl
+
+# Usuario no-root
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+# Copiar el build (con ownership correcto para el usuario no-root)
+COPY --from=builder --chown=nextjs:nodejs /app/micelia/frontend/package.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/micelia/frontend/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/micelia/frontend/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/micelia/frontend/next.config.js ./
+
+USER nextjs
+
+EXPOSE 9000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:9000/ || exit 1
+
+CMD ["npx", "next", "start", "-p", "9000"]
