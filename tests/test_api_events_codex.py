@@ -348,6 +348,40 @@ async def test_create_event_missing_required_field_422():
     assert resp.status_code == 422
 
 
+def test_event_create_required_field_set_matches_domain_contract():
+    """Tripwire del contrato de ENTRADA de eventos (write-side, gemelo de los
+    pins read-side de Ciclos 66/67 sobre el health-check).
+
+    `POST /api/v1/events` es el punto de integración cross-repo MÁS usado del
+    ecosistema: los 6 dominios publican eventos vía su SDK. Auditado hoy
+    (Ciclo 68) leyendo el builder de cada SDK, TODOS construyen el body con
+    exactamente estos 4 campos como obligatorios —y ninguno más—:
+
+      - biohack / cybertools: ``VitalEvent.to_dict()``
+        (``cybertools/src/scanet/vital_sdk/models.py:32-46`` — dataclass con
+        category/source/action/event_type requeridos; payload/subcategory/
+        metadata/tags/correlation_id con ``default`` → se omiten si son None).
+      - canela / codking: ``create_event(...)``
+        (``canela-molida/app/integrations/vital_sdk/events.py:33-56`` — mismo
+        set requerido; el resto se emite con ``or {}`` / ``or []`` / None).
+
+    Riesgo que este pin blinda: si alguien marca un 5º campo como requerido
+    (``Field(...)``) —p. ej. hacer ``payload`` obligatorio— cada dominio que hoy
+    lo omite recibiría 422 en producción, pero los tests happy-path solo lo
+    cazarían de rebote y con un mensaje confuso. Aquí se caza en el ORIGEN (el
+    schema) y obliga a re-auditar los 6 SDK ANTES de cambiar la expectativa.
+    Inverso incluido: aflojar un requerido a opcional (o añadir cualquier campo
+    nuevo) rompe también, avisando de que el contrato mínimo cambió.
+    """
+    fields = events.EventCreate.model_fields
+    required = {name for name, field in fields.items() if field.is_required()}
+    optional = set(fields) - required
+    assert required == {"category", "source", "action", "event_type"}
+    # Los opcionales que los SDK omiten deben SEGUIR siendo opcionales, o los
+    # dominios que no los mandan empezarían a fallar el ingest.
+    assert optional == {"subcategory", "payload", "metadata", "tags", "correlation_id"}
+
+
 # ============================================================ GET /stats
 
 
