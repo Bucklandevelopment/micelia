@@ -73,6 +73,9 @@ export function Header() {
             <Link href="/monitor" className="text-sm text-gray-400 hover:text-yellow-400 transition-colors">
               Monitor
             </Link>
+            <Link href="/servicios" className="text-sm text-gray-400 hover:text-idm-health transition-colors">
+              Servicios
+            </Link>
             <Link href="/prompts/lists" className="text-sm text-gray-400 hover:text-purple-400 transition-colors">
               Lists
             </Link>
