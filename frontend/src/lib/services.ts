@@ -8,10 +8,12 @@
  * (`GET /api/v1/health/services` → claves `health|research|education|security`).
  *
  * Las URLs de frontend se leen de variables `NEXT_PUBLIC_*_URL` con default al mapa
- * de puertos nativo local (ver `.env.local.example`). Mañana pueden apuntar a los
- * subdominios de idmmortality.com sin tocar código. NOTA: en Next.js solo se inlinean
- * los accesos LITERALES a `process.env.NEXT_PUBLIC_*`; por eso cada uno se escribe
- * explícito y no con clave dinámica.
+ * de puertos nativo local. FUENTE DE VERDAD del mapa: `scripts/ecosystem-ports.json`
+ * (DP-12); si cambias un puerto default aquí, cámbialo también en el JSON —
+ * `test_ecosystem_ports_manifest_codex.py` lo verifica en `make verify`. Mañana estas
+ * URLs pueden apuntar a los subdominios de idmmortality.com sin tocar código. NOTA: en
+ * Next.js solo se inlinean los accesos LITERALES a `process.env.NEXT_PUBLIC_*`; por eso
+ * cada uno se escribe explícito y no con clave dinámica.
  */
 
 /** Forma de cada entrada de `GET /api/v1/health/services` (registry del gateway). */

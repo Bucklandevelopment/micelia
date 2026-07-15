@@ -1,0 +1,33 @@
+{
+  "_readme": [
+    "FUENTE DE VERDAD del mapa de puertos del ecosistema local de Micelia (DP-12,",
+    "cerrada Ciclo 76). Antes este mapa vivía TRIPLICADO sin un origen declarado:",
+    "la tabla SERVICES de scripts/run-ecosystem.sh (el launcher que bindea), los",
+    "defaults `|| 'http://localhost:<puerto>'` de frontend/src/lib/services.ts (el hub",
+    "/servicios que enlaza) y frontend/.env.local.example (el template que un dev copia).",
+    "Los pins de C72 ya impedían el drift SILENCIOSO entre las tres copias, pero no",
+    "existía un sitio autoritativo donde leer/cambiar el mapa. Este JSON es ese sitio.",
+    "",
+    "DECISIÓN (DP-12): NO se consolida en un único loader compartido en runtime. Bash",
+    "(source), TypeScript (import) y dotenv piden formatos nativos distintos; unificarlos",
+    "exigiría jq o codegen y tocaría 3 runtimes SIN un runner de frontend que lo valide",
+    "end-to-end (solo hay lint+tsc). En su lugar: este manifest es la fuente declarada y",
+    "tests/test_ecosystem_ports_manifest_codex.py fuerza que las 3 copias de runtime",
+    "DERIVEN de él (topología en estrella). Editar el mapa = cambiar aquí primero; el",
+    "test dice exactamente qué espejo actualizar. Riesgo de runtime = 0.",
+    "",
+    "Puertos del gateway (8888) e infra (postgres/redis/ollama) NO viven aquí: los",
+    "gobierna el contrato de deploy (tests/test_deploy_contract_codex.py) y el compose."
+  ],
+  "services": {
+    "panel":       { "port": 3001, "role": "frontend", "launcher_id": "panel",       "hub_card": null,         "note": "el propio panel de Micelia; el hub vive en :3001/servicios" },
+    "biohack-fe":  { "port": 5173, "role": "frontend", "launcher_id": "biohack-fe",   "hub_card": "biohack" },
+    "biohack-be":  { "port": 8080, "role": "backend",  "launcher_id": "biohack-be",   "hub_card": null,         "note": "API de biohack; el hub enlaza al FE (:5173), no a este" },
+    "canela":      { "port": 8501, "role": "api+ui",   "launcher_id": "canela",       "hub_card": "canela" },
+    "ideacursi":   { "port": 6060, "role": "api+ui",   "launcher_id": "ideacursi",    "hub_card": "ideacursi" },
+    "codking-vis": { "port": 3009, "role": "frontend", "launcher_id": "codking-vis",  "hub_card": "codking",    "note": "resuelve la colisión con Grafana :3000 → :3009" },
+    "automation":  { "port": 8891, "role": "frontend", "launcher_id": "automation",   "hub_card": "automation" },
+    "cybertools":  { "port": 8000, "role": "api-docs", "launcher_id": null,           "hub_card": "cybertools", "hub_url_suffix": "/docs", "note": "sin SPA (tieneWebUI:false); el hub enlaza a la API docs, el launcher NO lo bindea como frontend" },
+    "codking-be":  { "port": 8000, "role": "backend",  "launcher_id": "codking-be",   "hub_card": null,         "opt_in": true, "note": "inference server opt-in (WITH_CODKING_INFERENCE=1); comparte :8000 con las docs de cybertools — no correr ambos a la vez" }
+  }
+}

@@ -85,6 +85,9 @@ stop_svc() {  # stop_svc ID PORT
 # Cada línea: id|Etiqueta|workdir|puerto|deps_marker|comando|pista_install
 # marker = ruta relativa a workdir que debe existir ("-" si no aplica).
 # NOTA: canela `make run-all` e ideacursi `npm run dev` levantan API+FE juntos.
+# FUENTE DE VERDAD del mapa de puertos: scripts/ecosystem-ports.json (DP-12). Si
+# cambias un puerto aquí, cámbialo también en el JSON; test_ecosystem_ports_manifest
+# lo verifica en `make verify`.
 
 SERVICES="\
 panel|Micelia panel|$MICELIA_DIR/frontend|3001|node_modules|npm run dev|cd micelia/frontend && npm install
