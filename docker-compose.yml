@@ -187,6 +187,10 @@ services:
     ports:
       - "8081:8080"
     environment:
+      # DP-5: biohack LEE VITAL_CORE_URL/VITAL_CORE_API_KEY (backend/app/core/config.py:135).
+      # Los IDM_* se conservan como alias hasta que el rebrand decida qué nombre gana.
+      - VITAL_CORE_URL=http://idm-core:8888
+      - VITAL_CORE_API_KEY=idm-dev-key-2024-secure
       - IDM_CORE_URL=http://idm-core:8888
       - IDM_CORE_API_KEY=idm-dev-key-2024-secure
       - VITAL_ENABLED=true
@@ -218,6 +222,10 @@ services:
     ports:
       - "3690:3690"
     environment:
+      # DP-5: canela LEE VITAL_CORE_URL/VITAL_API_KEY (su VitalConfig usa env_prefix
+      # "VITAL_", app/integrations/vital_sdk/config.py:13). IDM_* se conservan como alias.
+      - VITAL_CORE_URL=http://idm-core:8888
+      - VITAL_API_KEY=idm-dev-key-2024-secure
       - IDM_CORE_URL=http://idm-core:8888
       - IDM_API_KEY=idm-dev-key-2024-secure
       - VITAL_ENABLED=true
@@ -249,6 +257,10 @@ services:
       - "5050:5050"
     environment:
       - BACKEND_PORT=5050
+      # DP-5: ideacursi LEE VITAL_CORE_URL/VITAL_CORE_API_KEY
+      # (backend/src/vital-core/vital-core.service.js:27-28). IDM_* como alias.
+      - VITAL_CORE_URL=http://idm-core:8888
+      - VITAL_CORE_API_KEY=idm-dev-key-2024-secure
       - IDM_CORE_URL=http://idm-core:8888
       - IDM_CORE_API_KEY=idm-dev-key-2024-secure
       - VITAL_ENABLED=true
@@ -300,6 +312,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # DP-5: cybertools LEE VITAL_CORE_URL/VITAL_API_KEY (src/scanet/api.py:57-58).
+      # IDM_* se conservan como alias.
+      - VITAL_CORE_URL=http://idm-core:8888
+      - VITAL_API_KEY=idm-dev-key-2024-secure
       - IDM_CORE_URL=http://idm-core:8888
       - IDM_API_KEY=idm-dev-key-2024-secure
       - VITAL_ENABLED=true
@@ -340,6 +356,10 @@ services:
     ports:
       - "8090:8000"  # Use 8090 externally to avoid conflict with cybertools on 8000
     environment:
+      # DP-5: codking LEE VITAL_CORE_URL/VITAL_API_KEY (su VitalConfig usa env_prefix
+      # "VITAL_", integrations/vital_sdk/config.py:13). IDM_* se conservan como alias.
+      VITAL_CORE_URL: http://idm-core:8888
+      VITAL_API_KEY: idm-dev-key-2024-secure
       IDM_CORE_URL: http://idm-core:8888
       IDM_API_KEY: idm-dev-key-2024-secure
       VITAL_ENABLED: "true"
@@ -367,6 +387,10 @@ services:
     ports:
       - "3100:9090"  # App listens on 9090 (config/index.ts PORT default)
     environment:
+      # DP-5: auto-mat-ion LEE VITAL_CORE_URL (src/config/index.ts:20) y
+      # VITAL_CORE_API_KEY (src/api/server.ts:146). IDM_* se conservan como alias.
+      VITAL_CORE_URL: http://idm-core:8888
+      VITAL_CORE_API_KEY: idm-dev-key-2024-secure
       IDM_CORE_URL: http://idm-core:8888
       IDM_CORE_API_KEY: idm-dev-key-2024-secure
       VITAL_CORE_ENABLED: "true"
