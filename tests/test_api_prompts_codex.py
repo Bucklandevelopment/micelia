@@ -99,8 +99,12 @@ async def test_create_prompt_priority_out_of_range_422():
 
 
 async def test_list_prompts_with_filters():
+    # Shape REAL de PromptStore.list_prompts: wrapper {prompts, count, limit, offset,
+    # total} (no una lista pelada). El response_model PromptListResponse (DP-10) valida
+    # esta forma; con response_model_exclude_unset la respuesta es idéntica al store.
     rows = [{"prompt_id": str(uuid4()), "content": "x"}]
-    store = _store(list_prompts=rows)
+    payload = {"prompts": rows, "count": 1, "limit": 10, "offset": 5, "total": 1}
+    store = _store(list_prompts=payload)
     app = build_app(store)
     async with client_for(app) as c:
         r = await c.get(
@@ -108,7 +112,7 @@ async def test_list_prompts_with_filters():
             headers=AUTH,
         )
     assert r.status_code == 200
-    assert r.json() == rows
+    assert r.json() == payload
     assert store.list_prompts.await_args.kwargs["status"] == "pending"
     assert store.list_prompts.await_args.kwargs["limit"] == 10
 

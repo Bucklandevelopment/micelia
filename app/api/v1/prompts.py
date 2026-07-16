@@ -5,11 +5,11 @@ Gestión de prompts, quick notes, prompt lists, y control del pipeline.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.core.security import verify_auth
 
@@ -86,6 +86,116 @@ class PromptPromoteToMCP(BaseModel):
     pass
 
 
+# ==================== RESPONSE SCHEMAS (DP-10) ====================
+# Blindan en runtime + OpenAPI el contrato de LECTURA que el panel consume y que
+# hasta el Ciclo 78 solo sostenían los tests de serialización (ver DP-10). Diseño:
+#   * Los campos reflejan EXACTAMENTE los serializers del store (`_prompt_to_dict`,
+#     `_list_to_dict`, `get_stats`); `test_prompt_response_models_codex.py` asserta
+#     esa correspondencia para que el modelo no drifte del store en silencio.
+#   * Todos los campos son opcionales y `extra="allow"`: combinado con
+#     `response_model_exclude_unset=True` en cada ruta, el modelo NO añade ni elimina
+#     claves (non-lossy) — documenta el shape en OpenAPI sin alterar la respuesta real
+#     ni la de los mocks parciales de test.
+
+class PromptOut(BaseModel):
+    """Forma de un prompt serializado (`PromptStore._prompt_to_dict`)."""
+    model_config = ConfigDict(extra="allow")
+    prompt_id: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    priority: Optional[int] = None
+    status: Optional[str] = None
+    model_used: Optional[str] = None
+    provider_used: Optional[str] = None
+    prefer_paid: Optional[bool] = None
+    review_score: Optional[float] = None
+    iterations: Optional[int] = None
+    output: Optional[str] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    processing_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    parent_prompt_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    tags: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    source: Optional[str] = None
+    tokens_input: Optional[int] = None
+    tokens_output: Optional[int] = None
+    latency_ms: Optional[int] = None
+    cost_usd: Optional[float] = None
+    workflow: Optional[str] = None
+    classified_at: Optional[str] = None
+    staged_at: Optional[str] = None
+    archived_at: Optional[str] = None
+    promoted_to: Optional[str] = None
+    promoted_ref: Optional[str] = None
+    provider_policy: Optional[str] = None
+
+
+class PromptListOut(BaseModel):
+    """Forma de una prompt-list serializada (`PromptStore._list_to_dict`)."""
+    model_config = ConfigDict(extra="allow")
+    list_id: Optional[str] = None
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    content_md: Optional[str] = None
+    is_active: Optional[bool] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class PromptStatsOut(BaseModel):
+    """Estadísticas del sistema de prompts (`PromptStore.get_stats`)."""
+    model_config = ConfigDict(extra="allow")
+    total: Optional[int] = None
+    by_status: Optional[Dict[str, int]] = None
+    by_category: Optional[Dict[str, int]] = None
+    completed_today: Optional[int] = None
+    total_tokens_input: Optional[int] = None
+    total_tokens_output: Optional[int] = None
+    total_cost_usd: Optional[float] = None
+    avg_latency_ms: Optional[float] = None
+
+
+class PromptListResponse(BaseModel):
+    """`GET /prompts` — `PromptStore.list_prompts`."""
+    model_config = ConfigDict(extra="allow")
+    prompts: List[PromptOut] = []
+    count: Optional[int] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    total: Optional[int] = None
+
+
+class PromptCollectionView(BaseModel):
+    """`GET /prompts/inbox` y `/staging` — wrapper `{prompts, count, view}`."""
+    model_config = ConfigDict(extra="allow")
+    prompts: List[PromptOut] = []
+    count: Optional[int] = None
+    view: Optional[str] = None
+
+
+class PromptArchiveResponse(BaseModel):
+    """`GET /prompts/archive` — `PromptStore.get_archived_prompts`."""
+    model_config = ConfigDict(extra="allow")
+    prompts: List[PromptOut] = []
+    total: Optional[int] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+
+
+class PromptListsResponse(BaseModel):
+    """`GET /prompts/lists` — wrapper `{lists, count}`."""
+    model_config = ConfigDict(extra="allow")
+    lists: List[PromptListOut] = []
+    count: Optional[int] = None
+
+
 # ==================== PROMPT CRUD ====================
 
 @router.post("")
@@ -109,7 +219,7 @@ async def create_prompt(data: PromptCreate, request: Request):
     return {"prompt_id": str(prompt_id), "status": "pending"}
 
 
-@router.get("")
+@router.get("", response_model=PromptListResponse, response_model_exclude_unset=True)
 async def list_prompts(
     request: Request,
     status: Optional[str] = None,
@@ -132,7 +242,7 @@ async def list_prompts(
     )
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=PromptStatsOut, response_model_exclude_unset=True)
 async def get_stats(request: Request):
     """Estadísticas del sistema de prompts"""
     store = request.app.state.prompt_store
@@ -144,7 +254,7 @@ async def get_stats(request: Request):
 
 # ==================== INBOX / STAGING / ARCHIVE VIEWS ====================
 
-@router.get("/inbox")
+@router.get("/inbox", response_model=PromptCollectionView, response_model_exclude_unset=True)
 async def get_inbox(request: Request, limit: int = 50):
     """Obtener prompts en inbox (captured)"""
     store = request.app.state.prompt_store
@@ -157,7 +267,7 @@ async def get_inbox(request: Request, limit: int = 50):
     return {"prompts": prompts, "count": len(prompts), "view": "inbox"}
 
 
-@router.get("/staging")
+@router.get("/staging", response_model=PromptCollectionView, response_model_exclude_unset=True)
 async def get_staging(request: Request, limit: int = 50):
     """Obtener prompts en staging"""
     store = request.app.state.prompt_store
@@ -168,7 +278,7 @@ async def get_staging(request: Request, limit: int = 50):
     return {"prompts": prompts, "count": len(prompts), "view": "staging"}
 
 
-@router.get("/archive")
+@router.get("/archive", response_model=PromptArchiveResponse, response_model_exclude_unset=True)
 async def get_archive(request: Request, limit: int = 50, offset: int = 0):
     """Obtener prompts archivados"""
     store = request.app.state.prompt_store
@@ -182,7 +292,7 @@ async def get_archive(request: Request, limit: int = 50, offset: int = 0):
 # prompt_id and the UUID validation returns 422, making the endpoint
 # unreachable. "/lists/{slug}" (two segments) does not collide, so it stays in
 # the PROMPT LISTS section further down.
-@router.get("/lists")
+@router.get("/lists", response_model=PromptListsResponse, response_model_exclude_unset=True)
 async def list_all_lists(request: Request):
     """Listar todas las prompt lists"""
     store = request.app.state.prompt_store
@@ -193,7 +303,7 @@ async def list_all_lists(request: Request):
     return {"lists": lists, "count": len(lists)}
 
 
-@router.get("/{prompt_id}")
+@router.get("/{prompt_id}", response_model=PromptOut, response_model_exclude_unset=True)
 async def get_prompt(prompt_id: UUID, request: Request):
     """Obtener detalle de un prompt"""
     store = request.app.state.prompt_store
