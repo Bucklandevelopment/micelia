@@ -147,6 +147,13 @@ async def research_to_course_pipeline(
     topic: str,
     max_papers: int = 50,
     target_audience: str = "intermediate",
+    # DP-6 (auditada C81): default fijo porque el gateway no tiene identidad de
+    # ideacursi que propagar (`verify_auth` da "apikey:<n>"/"jwt:<sub>"; el UserStore
+    # de Micelia va por email, no por username). Si este usuario no existe en la BD de
+    # ideacursi, su `createCourseIndexWithActivation` NO lo auto-crea, el sync a BD
+    # revienta por tipo (UUID vs string) y su propio catch se lo TRAGA → aquí llega un
+    # 200 con curso que nunca se guardó ni activó en la BD del dominio.
+    # Contrato pineado en tests/test_ideacursi_pipeline_user_contract_codex.py.
     user_id: str = "micelia-pipeline",
 ):
     """
