@@ -69,11 +69,24 @@ class Settings(BaseSettings):
     security_service_enabled: bool = True
 
     # === DevTools Services ===
+    # DP-14 (C84): `ollama-code` NO EXISTE en el ecosistema — auditado: NADIE bindea
+    # :8890 (esta línea es la única referencia al puerto en todo el árbol) y no hay
+    # proyecto con ese nombre. Con el default en True, cada arranque local lo sondeaba
+    # cada 30s para siempre y lo listaba como "sin conexión". El default pasa a False
+    # para alinearse con la ÚNICA implantación que lo configura, que ya lo declara así:
+    # docker-compose.yml → `OLLAMA_CODE_ENABLED=false  # Service not in compose`.
+    # El slot NO se elimina (si algún día existe, basta OLLAMA_CODE_ENABLED=true):
+    # borrarlo es decisión de Jessicache, no de esta rutina.
     ollama_code_url: str = "http://localhost:8890"
-    ollama_code_enabled: bool = True
+    ollama_code_enabled: bool = False
 
+    # DP-14 (C84): `imperio-lab` NO es un fantasma pese al nombre heredado: es
+    # **auto-mat-ion**, que declara `servicePort: 8891, // imperio_lab_url port from
+    # config` (src/integrations/vital-core.ts:61) y lo fija en su propio test. Contrato
+    # VIVO por ambos lados → default True correcto (run-ecosystem.sh arranca su demo en
+    # :8891). Pineado en tests/test_registry_domains_codex.py. NO lo "limpies".
     imperio_lab_url: str = "http://localhost:8891"
-    imperio_lab_enabled: bool = True  # Mobile device testing lab
+    imperio_lab_enabled: bool = True  # Mobile device testing lab (= auto-mat-ion)
 
     # === Databases ===
     database_url: str = "postgresql+asyncpg://idm:idm_password@localhost:5432/idm_core"
