@@ -36,13 +36,20 @@ _SERVICES_TS = _REPO / "frontend" / "src" / "lib" / "services.ts"
 _ENV_EXAMPLE = _REPO / "frontend" / ".env.local.example"
 
 # id de tarjeta en services.ts  ->  id de servicio en la tabla SERVICES del launcher.
-# Solo dominios con frontend que el launcher arranca Y el hub enlaza.
+# Dominios que el launcher arranca Y el hub enlaza (el botón "Abrir…" debe caer
+# sobre el puerto que el launcher bindeó).
+# C85: `cybertools` entra aquí. No es un frontend (sigue sin SPA; su tarjeta enlaza a
+# :8000/docs), pero desde C85 el launcher SÍ bindea ese puerto — sirve el slot
+# `security` del registry —, así que la tarjeta y el launcher pasan a estar acoplados
+# por el puerto igual que el resto. Antes el acoplamiento no existía y este test
+# pineaba la EXCLUSIÓN (ver test_cybertools_launched_for_the_registry_not_the_hub).
 _HUB_TO_LAUNCHER = {
     "biohack": "biohack-fe",
     "canela": "canela",
     "ideacursi": "ideacursi",
     "codking": "codking-vis",
     "automation": "automation",
+    "cybertools": "cybertools",
 }
 
 
@@ -154,15 +161,52 @@ def test_env_example_documents_the_same_defaults_as_services_ts():
         )
 
 
-def test_cybertools_is_documented_as_not_launched_frontend():
+def test_cybertools_launched_for_the_registry_not_the_hub():
     """
-    Guard del razonamiento de exclusión: cybertools tiene tarjeta en el hub (:8000/docs)
-    pero NO es un frontend que run-ecosystem.sh arranque. Si algún día el launcher
-    empieza a bindear un `cybertools`/`cybertools-fe`, hay que meterlo en el mapa de
-    arriba y este recordatorio debe revisarse.
+    C85 invierte el guard de C72 (que pineaba que el launcher NO arrancaba cybertools).
+
+    Motivo del cambio, y por qué NO contradice el razonamiento de C72: C72 razonaba
+    desde el HUB ("no tiene SPA → no es un frontend que el launcher deba arrancar"),
+    y eso sigue siendo cierto. Lo que C72 no miraba es el REGISTRY: `security` es uno
+    de los 5 slots que Micelia sondea (`security_service_url` = :8000, `/health`), así
+    que sin cybertools corriendo el slot queda unhealthy aunque el launcher haya
+    levantado todo lo demás. Precedente exacto: `biohack-be` (:8080) lleva en la tabla
+    desde siempre por ser backend del slot `health`, no por tener UI.
+
+    El pin exige el `.venv` como marker (no `node_modules`): cybertools es Python y su
+    arranque real es `.venv/bin/uvicorn scanet.api:app`.
     """
     launcher = _launcher_ports()
-    assert "cybertools" not in launcher and "cybertools-fe" not in launcher, (
-        "run-ecosystem.sh ahora arranca cybertools como servicio: añade la "
-        "correspondencia a _HUB_TO_LAUNCHER y ajusta este test."
+    assert launcher.get("cybertools") == 8000, (
+        "run-ecosystem.sh debe bindear cybertools en :8000 (slot `security` del "
+        f"registry). Tabla SERVICES parseada: {launcher}"
+    )
+
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    line = next(
+        ln for ln in text.splitlines() if ln.startswith("cybertools|")
+    )
+    assert ".venv" in line and "scanet.api:app" in line, (
+        f"el arranque de cybertools dejó de ser uvicorn sobre su .venv: {line!r}"
+    )
+
+
+def test_cybertools_and_codking_be_are_mutually_exclusive_on_8000():
+    """
+    DP-12 (C76) declara que cybertools y codking-be comparten :8000 y "no correr ambos
+    a la vez". C85 mete cybertools en el launcher, así que esa exclusión pasa de nota
+    en el manifest a comportamiento: el launcher elige por el flag (`if/else`), no por
+    carrera de `port_in_use`. Este pin muerde si alguien pone los dos en la misma rama.
+    """
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    assert re.search(
+        r'if \[ "\$WITH_CODKING_INFERENCE" = "1" \]; then'
+        r"[\s\S]*?codking-be\|[\s\S]*?"
+        r"^else$"
+        r"[\s\S]*?cybertools\|[\s\S]*?^fi$",
+        text,
+        re.MULTILINE,
+    ), (
+        "cybertools y codking-be deben seguir en ramas EXCLUYENTES del flag "
+        "--with-codking-inference (comparten :8000, DP-12)."
     )

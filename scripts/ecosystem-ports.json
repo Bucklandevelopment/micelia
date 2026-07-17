@@ -27,7 +27,7 @@
     "ideacursi":   { "port": 6060, "role": "api+ui",   "launcher_id": "ideacursi",    "hub_card": "ideacursi" },
     "codking-vis": { "port": 3009, "role": "frontend", "launcher_id": "codking-vis",  "hub_card": "codking",    "note": "resuelve la colisión con Grafana :3000 → :3009" },
     "automation":  { "port": 8891, "role": "frontend", "launcher_id": "automation",   "hub_card": "automation" },
-    "cybertools":  { "port": 8000, "role": "api-docs", "launcher_id": null,           "hub_card": "cybertools", "hub_url_suffix": "/docs", "note": "sin SPA (tieneWebUI:false); el hub enlaza a la API docs, el launcher NO lo bindea como frontend" },
-    "codking-be":  { "port": 8000, "role": "backend",  "launcher_id": "codking-be",   "hub_card": null,         "opt_in": true, "note": "inference server opt-in (WITH_CODKING_INFERENCE=1); comparte :8000 con las docs de cybertools — no correr ambos a la vez" }
+    "cybertools":  { "port": 8000, "role": "api-docs", "launcher_id": "cybertools",   "hub_card": "cybertools", "hub_url_suffix": "/docs", "note": "sin SPA (tieneWebUI:false); el hub enlaza a la API docs. C85: el launcher SÍ lo bindea — no como frontend, sino porque sirve el slot `security` que el registry sondea (:8000/health). Excluyente con codking-be" },
+    "codking-be":  { "port": 8000, "role": "backend",  "launcher_id": "codking-be",   "hub_card": null,         "opt_in": true, "note": "inference server opt-in (WITH_CODKING_INFERENCE=1); comparte :8000 con cybertools — EXCLUYENTES, el launcher elige por el flag (C85), nunca los dos" }
   }
 }

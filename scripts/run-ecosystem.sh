@@ -98,10 +98,22 @@ ideacursi|Ideacursi (BE+FE)|$PROJECTS_DIR/ideacursi-tool|6060|node_modules|npm r
 codking-vis|CodKing visualizer|$PROJECTS_DIR/codking/rlm_framework/visualizer|3009|node_modules|npx next dev -p 3009|cd codking/rlm_framework/visualizer && npm install
 automation|Auto-mat-ion demo|$PROJECTS_DIR/auto-mat-ion|8891|node_modules|npm run demo|cd auto-mat-ion && npm install"
 
-# codking inference (pesado: checkpoint + PyTorch) — opt-in.
+# cybertools (:8000) NO es un frontend — se arranca porque es el dominio `security`
+# que el REGISTRY de Micelia sondea (config.py: security_service_url=:8000, health
+# endpoint `/health`). Sin él, `security` queda unhealthy aunque el launcher haya
+# levantado todo lo demás. Precedente: `biohack-be` ya está aquí por el mismo motivo
+# (sirve el slot `health` en :8080), no por tener UI.
+# COLISIÓN (DP-12, C76): codking-be comparte :8000 y el manifest declara "no correr
+# ambos a la vez" → son EXCLUYENTES y se elige de forma explícita, no por carrera de
+# `port_in_use`: con --with-codking-inference manda codking-be (es lo que el flag pide).
 if [ "$WITH_CODKING_INFERENCE" = "1" ]; then
+  echo "  ⚠ --with-codking-inference: codking-be toma :8000; cybertools NO se arranca"
+  echo "    (comparten puerto, DP-12) → el slot 'security' del registry quedará unhealthy."
   SERVICES="$SERVICES
 codking-be|CodKing inference|$PROJECTS_DIR/codking|8000|-|python3 -m codking.api.inference_server --port 8000|cd codking && pip install -r requirements.txt (+ checkpoint)"
+else
+  SERVICES="$SERVICES
+cybertools|Cybertools API (security)|$PROJECTS_DIR/cybertools|8000|.venv|.venv/bin/uvicorn scanet.api:app --host 127.0.0.1 --port 8000|cd cybertools && python3 -m venv .venv && .venv/bin/pip install -e ."
 fi
 
 # ---- acciones --------------------------------------------------------------
@@ -135,7 +147,8 @@ do_stop() {
     stop_svc "$id" "$port"
     echo "  · $label detenido"
   done <<< "$SERVICES"
-  # codking-be puede no estar en la tabla si no se arrancó con el flag: limpia su puerto igual.
+  # :8000 lo puede tener cybertools o codking-be según el flag con el que se arrancó
+  # (son excluyentes). `stop` no sabe cuál fue: limpia el puerto en ambos casos.
   stop_svc codking-be 8000
   echo "== Parando gateway Micelia =="
   bash "$MICELIA_DIR/scripts/run-local.sh" stop || true
