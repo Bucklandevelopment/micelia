@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -127,11 +128,30 @@ class ServiceRegistry:
         )
         if unhealthy:
             names = ", ".join(s.name for s in unhealthy)
-            # Mapeo dominio → target Makefile mínimo que lo levanta.
-            # Si SOLO falta 'health' (biohack), basta con `make docker-health`.
-            # Si falta cualquier otro, recomendamos `make docker-full`.
+            # El comando que de verdad los levanta depende de la TOPOLOGÍA en la que
+            # corre ESTE gateway, y esa se deduce de las URLs que sondea (DP-15, C85):
+            #
+            #  * localhost/127.0.0.1 → gateway NATIVO (run-local.sh), que es el caso
+            #    por defecto (los defaults de config.py son localhost:*). Aquí el
+            #    comando correcto es el launcher local-first: bindea EXACTAMENTE los
+            #    puertos que sondeamos (health :8080, research :3690, education :5050,
+            #    security :8000, testlab :8891).
+            #    `make docker-full` NO sirve a un gateway nativo: el compose PUBLICA
+            #    health en :8081 y testlab (auto-mat-ion) en :3100 → 2 de 5 seguirían
+            #    unhealthy después de levantar 9 contenedores. Recomendarlo era una
+            #    promesa que el comando no puede cumplir.
+            #  * hostnames de contenedor (biohack-app, canela-molida, …) → gateway EN
+            #    COMPOSE: ahí los puertos son internos y sí manda el compose.
+            #
+            # Pineado en tests/test_registry_hint_topology_codex.py.
             unhealthy_names = {s.name for s in unhealthy}
-            if unhealthy_names == {"health"}:
+            gateway_is_native = all(
+                (urlparse(s.url).hostname or "") in ("localhost", "127.0.0.1")
+                for s in unhealthy
+            )
+            if gateway_is_native:
+                hint = "scripts/run-ecosystem.sh start"
+            elif unhealthy_names == {"health"}:
                 hint = "make docker-health"
             else:
                 hint = "make docker-full"
