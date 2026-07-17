@@ -27,6 +27,8 @@ Método = arrancar el sistema de verdad, no leer el código: replica lo que hace
 `run-local.sh` pero in-process y determinista, sin ocupar el puerto 8888 ni RAM extra.
 """
 
+import socket
+
 import httpx
 from starlette.testclient import TestClient
 
@@ -36,9 +38,39 @@ from app.services.frangels.orchestrator import get_frangels_orchestrator
 
 _DOMAIN_KEYS = {"health", "research", "education", "security"}
 
+_PROBED_URL_ATTRS = (
+    "health_service_url",
+    "research_service_url",
+    "education_service_url",
+    "security_service_url",
+    "ollama_code_url",
+    "imperio_lab_url",
+)
 
-def test_gateway_boots_and_degrades_gracefully_without_infra():
+
+def _closed_loopback_port() -> int:
+    """Puerto de loopback garantizado CERRADO: lo bindea el SO y se suelta acto seguido."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_gateway_boots_and_degrades_gracefully_without_infra(monkeypatch):
     """El gateway real arranca, sirve y apaga limpio con toda la infra ausente."""
+    # HERMETICIDAD (C85). Este test decía ser "determinista" y no lo era: el registry
+    # sondea de VERDAD los puertos de los dominios (defaults localhost:8080/3690/5050/
+    # 8000/8891), así que "sin infra" no era una condición que el test estableciera —
+    # era una suposición sobre la máquina del dev. Con cualquier dominio corriendo en
+    # local, `healthy is False` falla y el verify se pone rojo sin que nada esté mal.
+    # No es teórico: C85 mete cybertools (:8000) en `run-ecosystem.sh`, así que la
+    # secuencia normal `run-ecosystem.sh start` + `make verify` lo disparaba.
+    # Fix: apuntar los sondeos a un puerto cerrado → connection_refused determinista.
+    # Se conserva el sondeo REAL (no se mockea el cliente): lo que se fija es el
+    # entorno, no el comportamiento.
+    closed = _closed_loopback_port()
+    for attr in _PROBED_URL_ATTRS:
+        monkeypatch.setattr(settings, attr, f"http://127.0.0.1:{closed}", raising=False)
+
     # `with TestClient(...)` ejecuta el lifespan REAL: startup al entrar, shutdown al salir.
     with TestClient(app) as client:
         # (1) Arranque completado sin excepción → los endpoints responden.
