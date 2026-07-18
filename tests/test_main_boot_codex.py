@@ -30,6 +30,7 @@ Método = arrancar el sistema de verdad, no leer el código: replica lo que hace
 import socket
 
 import httpx
+import pytest
 from starlette.testclient import TestClient
 
 from app.core.config import settings
@@ -38,6 +39,8 @@ from app.services.frangels.orchestrator import get_frangels_orchestrator
 
 _DOMAIN_KEYS = {"health", "research", "education", "security"}
 
+# URLs de dominio que `discover_services` sondea al arrancar el lifespan. Son las que
+# el registry recorre; su default es `localhost:<puerto de dominio>` (config.py).
 _PROBED_URL_ATTRS = (
     "health_service_url",
     "research_service_url",
@@ -55,22 +58,35 @@ def _closed_loopback_port() -> int:
         return s.getsockname()[1]
 
 
-def test_gateway_boots_and_degrades_gracefully_without_infra(monkeypatch):
-    """El gateway real arranca, sirve y apaga limpio con toda la infra ausente."""
-    # HERMETICIDAD (C85). Este test decía ser "determinista" y no lo era: el registry
-    # sondea de VERDAD los puertos de los dominios (defaults localhost:8080/3690/5050/
-    # 8000/8891), así que "sin infra" no era una condición que el test estableciera —
-    # era una suposición sobre la máquina del dev. Con cualquier dominio corriendo en
-    # local, `healthy is False` falla y el verify se pone rojo sin que nada esté mal.
-    # No es teórico: C85 mete cybertools (:8000) en `run-ecosystem.sh`, así que la
-    # secuencia normal `run-ecosystem.sh start` + `make verify` lo disparaba.
-    # Fix: apuntar los sondeos a un puerto cerrado → connection_refused determinista.
-    # Se conserva el sondeo REAL (no se mockea el cliente): lo que se fija es el
-    # entorno, no el comportamiento.
+@pytest.fixture()
+def no_domain_probes(monkeypatch):
+    """
+    Hermeticidad de arranque (C85). ESTE es el único fichero que arranca el lifespan
+    REAL (`app.main:app` vía `TestClient`), y arrancarlo dispara `discover_services`,
+    que **sondea de verdad** los puertos de los dominios (localhost:8080/3690/5050/
+    8000/8891). Sin fijar el entorno, el resultado de ese sondeo depende de qué haya
+    corriendo en la máquina del dev — no de lo que el test controla.
+
+    Esto tenía dos caras:
+      * `test_gateway...without_infra` ASSERTA `healthy is False` → con cualquier
+        dominio arriba se ponía ROJO (lo cazó C85: cybertools entró en el launcher, así
+        que `run-ecosystem.sh start` + `make verify` lo disparaba). Correctness.
+      * los otros dos tests de lifespan NO assertan salud, así que no se ponían rojos,
+        pero igualmente FIRABAN sockets reales contra esos puertos en cada corrida —
+        latencia y una superficie de cuelgue (un puerto que acepta y no responde).
+
+    Esta fixture cierra las dos: apunta TODOS los sondeos a un puerto de loopback
+    garantizado cerrado → `connection_refused` determinista. Se conserva el sondeo REAL
+    (no se mockea el cliente http): se fija el ENTORNO, no el comportamiento. Aplicada a
+    los 3 tests que bootean el lifespan → el fichero deja de tocar la red por completo.
+    """
     closed = _closed_loopback_port()
     for attr in _PROBED_URL_ATTRS:
         monkeypatch.setattr(settings, attr, f"http://127.0.0.1:{closed}", raising=False)
 
+
+def test_gateway_boots_and_degrades_gracefully_without_infra(no_domain_probes):
+    """El gateway real arranca, sirve y apaga limpio con toda la infra ausente."""
     # `with TestClient(...)` ejecuta el lifespan REAL: startup al entrar, shutdown al salir.
     with TestClient(app) as client:
         # (1) Arranque completado sin excepción → los endpoints responden.
@@ -116,7 +132,7 @@ def test_gateway_boots_and_degrades_gracefully_without_infra(monkeypatch):
     assert registry._monitoring_task.done()
 
 
-def test_frangels_orchestrator_client_closed_after_shutdown():
+def test_frangels_orchestrator_client_closed_after_shutdown(no_domain_probes):
     """El shutdown del lifespan cierra el cliente httpx propio del orquestador Frangels.
 
     Guard de regresión del `fix(main)` de C70. `FrangelsOrchestrator._get_client`
@@ -145,7 +161,7 @@ def test_frangels_orchestrator_client_closed_after_shutdown():
     assert orch._client.is_closed
 
 
-def test_gateway_openapi_wired_after_real_boot():
+def test_gateway_openapi_wired_after_real_boot(no_domain_probes):
     """El esquema OpenAPI se sirve tras arrancar la app real (todos los routers montados)."""
     with TestClient(app) as client:
         schema = client.get("/openapi.json")
