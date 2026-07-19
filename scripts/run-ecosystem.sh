@@ -62,6 +62,17 @@ start_svc() {
     echo "      $hint"
     return 0
   fi
+  # Un `.venv` puede EXISTIR pero estar HUÉRFANO: si brew actualiza python (p.ej.
+  # 3.13→3.14), el intérprete al que apunta el venv desaparece y `.venv/bin/uvicorn`
+  # muere con "bad interpreter" — un log críptico, no la pista de instalación que este
+  # script PROMETE dar ("detecta deps ausentes y reporta el comando en vez de fallar en
+  # silencio"). El check `-e` de arriba no lo caza (el dir sigue ahí). Verificamos que
+  # el intérprete EJECUTA, no solo que existe. (Real: canela, C87.)
+  if [ "$marker" = ".venv" ] && ! "$workdir/.venv/bin/python" -c '' >/dev/null 2>&1; then
+    echo "  ⚠ $label — .venv existe pero su intérprete no arranca (¿brew actualizó python?). Recrea con:"
+    echo "      $hint"
+    return 0
+  fi
 
   echo "  → $label — arrancando en :$port ..."
   ( cd "$workdir" && nohup bash -lc "$cmd" >> "$log" 2>&1 & echo $! > "$pidf" )
@@ -166,9 +177,14 @@ do_status() {
   done <<< "$SERVICES"
 }
 
-case "${1:-start}" in
-  start)  do_start ;;
-  stop)   do_stop ;;
-  status) do_status ;;
-  *) echo "Uso: $0 {start|stop|status} [--with-codking-inference]"; exit 2 ;;
-esac
+# Solo despachar cuando se EJECUTA el script, no cuando se SOURCEA (los tests lo
+# sourcean para ejercer `start_svc`/helpers en aislamiento; sin este guard, sourcear
+# arrancaría el ecosistema entero por el default `start`). Idiom estándar de bash.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  case "${1:-start}" in
+    start)  do_start ;;
+    stop)   do_stop ;;
+    status) do_status ;;
+    *) echo "Uso: $0 {start|stop|status} [--with-codking-inference]"; exit 2 ;;
+  esac
+fi
