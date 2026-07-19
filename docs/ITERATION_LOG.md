@@ -16,6 +16,27 @@
 
 ---
 
+## 2026-07-19 — Ciclo 96 (**cierro el CICLO DE SESIÓN del funnel: el `refresh_token` que register/login devolvían desde siempre y que NADIE canjeaba de punta a punta. Con esto un usuario del funnel sigue dentro cuando su access caduca, sin re-login. Y —última nota de rumbo— con esto el funnel local queda EXPRIMIDO: a partir de C97 vuelvo al núcleo**): tarea (a) del plan de C95, la que C94 dejó anotada.
+
+**El hueco (verificado):** register/login devuelven `access_token` **y** `refresh_token`, pero el `refresh_token` no se ejercía en el flujo del funnel. Los tests de auth existentes (`test_refresh_valid_token_returns_new_pair`) **sintetizan** un refresh en aislamiento (`subject="user-123"`) — no viene del register/login real, no toca el store, y no prueba que el token RENOVADO conceda acceso al usuario persistido.
+
+- **Hecho:** 1 commit — `dcc630d` `test(funnel): cierra el ciclo de sesión — refresh renueva preservando identidad y acceso`. 2 tests nuevos en `tests/test_funnel_preflight_smoke_codex.py` (exigen postgres → skipif, reusan la infra de C94):
+  - **ciclo de sesión:** register (auto-login) → se canjea **SU** refresh en `/auth/refresh` → el access renovado **SIGUE identificando al mismo usuario** (`sub == user_id`) y **SIGUE concediendo acceso** (`/me` → `auth_identity == user_id`); y el refresh **ROTA** → el nuevo refresh también sirve para otro refresh → la sesión se sostiene indefinidamente sin re-login. Es lo que mantiene dentro al usuario del funnel cuando su access caduca.
+  - **seguridad:** el ACCESS token **no** sirve como refresh (guard `type=='refresh'`) → un access reusado/robado no extiende la sesión.
+- **Verify:** **verde** — `make verify` sin postgres: `1622 passed, 17 skipped` (+2 que skip sin pg), cobertura ~95%.
+- **Ejercido con postgres real:** contenedor efímero aislado `:5433` → **5 passed** (los 3 de C94 + 2 de hoy: el preflight completo del funnel corre de una pieza). **Mutation-verified:** fijar el `subject` del refresh a `'admin'` (pierde identidad) rompe el ciclo de sesión; quitar el guard de `type` rompe el rechazo del access-como-refresh. Fuente restaurada (git limpio).
+- **Higiene / guardarraíles:** e2e in-process, nada arrancado; postgres efímero **eliminado**, **podman machine detenida**. **NO** toqué infra/DNS/TLS/secretos ni el runbook (WIP). `.env` no leído. Sin residuales.
+
+**FUNNEL LOCAL EXPRIMIDO — fin del sprint de funnel (C93–C96):** las 4 piezas automatizables están cubiertas y ejecutables: **cableado** (C93, frontend↔backend), **flujo** (C94, register→login→acceso contra el UserStore real), **render de errores** (C95, 409/401 en la UI) y **ciclo de sesión** (C96, refresh→renovación→rotación). Todo lo que resta del funnel es **⏳HUMANO** (pasos de panel IONOS/router/`pmset` + el flujo e2e en el dominio real) — **no automatizable por esta rutina**. Seguir pineando funnel sería exprimir marginal; la honestidad (regla C95) es reconocerlo y pivotar.
+
+**DECISIÓN PENDIENTE (para Jessicache):** **ninguna nueva.** El funnel local está **preflight-completo**; los usuarios reales dependen **solo** de tus pasos de panel (§2/§3 del runbook). Siguen abiertas **DP-17** (biohack en 3.14) y **DP-16** (venvs huérfanos) — ambas son el mismo problema de pinning de python por proyecto, y son las de MÁS valor pendiente ahora que el funnel está exprimido.
+
+**Mañana (Ciclo 97) — PIVOT de vuelta al núcleo:** el funnel ya no rinde valor nuevo automatizable. Los vectores vivos, por valor: **(a) DP-16/DP-17 — desbloquear biohack (y robustecer los venvs)**: es la deuda de arrancabilidad más grande y la única vía a un 3er dominio live. Lo autonomizable SIN decidir tooling del dueño: un **guard/preflight que detecte proactivamente qué venvs del ecosistema están rotos o incompatibles con el python del sistema** (extiende el check de venv-huérfano de C87 a un reporte de todo el ecosistema) — convierte DP-16/DP-17 de sorpresa-al-arrancar en diagnóstico temprano. **(b)** Si Jessicache instala python 3.13 (DP-17b), completar el arranque live de biohack (contrato ya pineado en C91). **(c)** Cobertura con valor real donde el mutation-testing revele huecos. Recordatorio honesto C66–C96: **exprimido un vector, PIVOTAR** (C95→C96 cumplido: reconocí el techo del funnel y lo cierro limpio en vez de estirar pins marginales); **un ciclo de sesión se prueba con el token que el flujo REAL emite, no uno sintético**; **preparar ≠ decidir**; **leer código committed = OK; tocar WIP/infra/`.env` = NO**. Local-first M1: jamás `docker-full`; parar/eliminar todo lo que se arranque; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-19 — Ciclo 95 (**tercer paso del funnel: que el usuario VEA por qué falla. C93 pineó el cableado, C94 el flujo contra persistencia real; C95 pinea el §5 literal — "409 mostrado correctamente en UI". Un funnel que falla en silencio espanta al usuario que intentábamos captar**): tarea (a) del plan de C94. Cierra el ítem del §5 del runbook que C94 dejó explícitamente pendiente.
 
 **El hueco (verificado leyendo las 3 capas):** C94 pineó que el backend devuelve 409/401 y que el flujo e2e funciona; pero que la PÁGINA se lo MUESTRE al usuario es otra capa que **nada tocaba** — ni `tsc`/lint (sin semántica) ni los tests de backend. La cadena real: `backend 409/401 → authApi mapea a ApiError.message → page catch→setError(msg) → JSX {error && <div>{error}</div>}`.
