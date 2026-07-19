@@ -28,11 +28,14 @@ Reusa `TEST_API_KEY` (registrado en el `api_key_manager` singleton por conftest)
 "SYSTEM_API_KEY propia" del test — sin leer el `.env` real.
 """
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
+import app.sdk.client as sdk_client
 from app.api.v1 import events
 from tests.conftest import TEST_API_KEY
 
@@ -212,3 +215,121 @@ async def test_sdk_register_lands_service_registered_event_in_real_store(
         assert payload["service_name"] == _SOURCE
         assert payload["status"] == "starting"
         assert "vuln-scan" in payload["capabilities"]
+
+
+# =============================================================================
+# HEARTBEAT — la 2ª mitad del contrato de C83 (C88)
+# =============================================================================
+#
+# C83 observó en el store, en vivo: `{'service.registered': 1, 'service.heartbeat': 2,
+# 'system.initialized': 1}` — el `register()` (pineado arriba) Y el latido de 30s
+# funcionando. C86 pineó solo el register; C88 cierra el latido. El heartbeat es el
+# MISMO camino que register (POST /api/v1/events → verify_auth → store) pero con
+# `event_type='service.heartbeat'`, `action='update'`, `tags=['heartbeat']` y un payload
+# que es el `health_response()` del SDK (status/version/service/category/port/
+# capabilities/uptime_seconds/dependencies). Y encima hay un LOOP que lo repite cada
+# `heartbeat_interval` segundos — eso se pinea aparte, determinista, sin reloj de pared.
+
+
+async def test_sdk_heartbeat_without_store_is_503_returns_false():
+    """
+    Sin Event Store, un latido degrada en SILENCIO igual que el register: el POST es 503
+    y `heartbeat()` devuelve False sin lanzar. Es la misma semántica de fallo silencioso
+    que C83 documentó — un dominio "vivo" cuyos latidos se pierden si el store cae. Sin
+    postgres (el gate 503 salta antes de tocar el store).
+    """
+    app = _events_only_app(event_store=None)
+    client = _sdk_client(app, api_key=TEST_API_KEY)
+    try:
+        assert await client.heartbeat() is False
+    finally:
+        await client._http_client.aclose()
+
+
+async def test_heartbeat_loop_sends_periodic_heartbeats(monkeypatch):
+    """
+    El loop de fondo (`_heartbeat_loop`) llama a `heartbeat()` UNA VEZ por intervalo, en
+    bucle, hasta que se cancela. Se pinea SIN reloj de pared ni postgres: se parchea
+    `asyncio.sleep` (en el módulo del SDK) por un stub que cuenta y corta a la 4ª llamada
+    con CancelledError, y se cuenta cuántas veces se invocó `heartbeat`. Mismo patrón que
+    `test_continuous_monitoring_runs_one_cycle_then_cancels` del registry.
+
+    Estructura del loop: `while True: await sleep(interval); await heartbeat()`. Con el
+    corte en la 4ª sleep → exactamente 3 latidos (sleeps 1,2,3 → heartbeat; sleep 4 →
+    cancel antes del 4º). Que sea `heartbeat_interval` quien gobierne la cadencia lo fija
+    el hecho de que el stub sustituye ESA espera.
+    """
+    client = sdk_client.IdmServiceClient(
+        service_name=_SOURCE,
+        port=8000,
+        category="security",
+        api_key=TEST_API_KEY,
+        heartbeat_interval=30,  # el valor real; el stub de sleep lo intercepta
+    )
+
+    beats = {"n": 0}
+    sleeps = {"n": 0}
+
+    async def fake_heartbeat() -> bool:
+        beats["n"] += 1
+        return True
+
+    async def fake_sleep(_seconds):
+        sleeps["n"] += 1
+        if sleeps["n"] >= 4:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(client, "heartbeat", fake_heartbeat)
+    monkeypatch.setattr(sdk_client.asyncio, "sleep", fake_sleep)
+
+    await client._heartbeat_loop()
+
+    assert beats["n"] == 3, f"el loop no latió 3 veces antes del cancel (n={beats['n']})"
+
+
+async def test_sdk_heartbeat_lands_service_heartbeat_event_in_real_store(
+    require_postgres, no_domain_probes
+):
+    """
+    La 2ª mitad de C83, ejecutable de punta a punta: gateway REAL (lifespan) + SDK REAL →
+    `heartbeat()` deja un `service.heartbeat` con `source='cybertools'` en el store, con
+    el payload de `health_response()` íntegro (service, status, version, port). Espejo del
+    test de register de C86; juntos pinean las DOS entradas que C83 vio en el store.
+    """
+    from app.main import app
+
+    async with app.router.lifespan_context(app):
+        store = app.state.event_store
+        assert store is not None, (
+            "require_postgres pasó pero el lifespan no inicializó el Event Store"
+        )
+
+        before = await store.query_events(
+            source=_SOURCE, event_type="service.heartbeat", limit=1000
+        )
+
+        client = _sdk_client(app, api_key=TEST_API_KEY)
+        try:
+            beat_ok = await client.heartbeat()
+        finally:
+            await client._http_client.aclose()
+
+        assert beat_ok is True, "heartbeat() devolvió False con key válida + store vivo"
+
+        after = await store.query_events(
+            source=_SOURCE, event_type="service.heartbeat", limit=1000
+        )
+        assert len(after) == len(before) + 1, (
+            f"heartbeat() no dejó exactamente 1 evento nuevo "
+            f"(antes={len(before)}, después={len(after)})"
+        )
+
+        newest = after[0]
+        assert newest["source"] == _SOURCE
+        assert newest["event_type"] == "service.heartbeat"
+        # El payload es el health_response() del SDK (models.HealthResponse.to_dict()).
+        payload = newest["payload"]
+        assert payload["service"] == _SOURCE
+        assert payload["status"] == "healthy"  # _healthy=True por defecto
+        assert payload["port"] == 8000
+        assert payload["version"] == "1.0.0"
