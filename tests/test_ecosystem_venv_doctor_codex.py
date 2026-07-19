@@ -42,6 +42,17 @@ def _make_venv(dir_: Path, *, python_target: str | None) -> None:
     (bin_ / "python").symlink_to(python_target)
 
 
+def _make_node(dir_: Path, *, populated: bool | None) -> None:
+    """node_modules del servicio: None=sin dir, False=dir vacío, True=poblado."""
+    dir_.mkdir(parents=True, exist_ok=True)
+    if populated is None:
+        return
+    nm = dir_ / "node_modules"
+    nm.mkdir()
+    if populated:
+        (nm / "some-pkg").mkdir()
+
+
 # =============================================================================
 # check_venv — el diagnóstico de UN venv
 # =============================================================================
@@ -81,48 +92,81 @@ def test_check_venv_missing_workdir_reports_no_existe(tmp_path):
 
 
 # =============================================================================
+# check_node — el diagnóstico de UN servicio node
+# =============================================================================
+
+
+def test_check_node_populated_reports_ok(tmp_path):
+    _make_node(tmp_path, populated=True)
+    r = _bash(f"check_node 'Fe' '{tmp_path}' 'npm install'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "OK (node_modules presente)" in out, out
+    assert "rc=0" in out
+
+
+def test_check_node_absent_reports_ausente(tmp_path):
+    _make_node(tmp_path, populated=None)  # workdir sí, node_modules no
+    r = _bash(f"check_node 'Fe' '{tmp_path}' 'npm install'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "node_modules AUSENTE" in out and "npm install" in out and "rc=1" in out, out
+
+
+def test_check_node_empty_dir_counts_as_absent(tmp_path):
+    """Un node_modules vacío (npm interrumpido) cuenta como ausente, no como OK."""
+    _make_node(tmp_path, populated=False)  # dir vacío
+    r = _bash(f"check_node 'Fe' '{tmp_path}' 'npm install'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "AUSENTE" in out and "rc=1" in out, out
+
+
+# =============================================================================
 # do_doctor — agrega sobre SERVICES, filtra no-python, exit 1 si algo mal
 # =============================================================================
 
 
-def test_doctor_aggregates_and_flags_any_bad(tmp_path):
-    """do_doctor recorre SERVICES, reporta cada venv python y sale 1 si alguno está mal.
-    Se inyecta un SERVICES controlado (ok + ausente + un node que debe IGNORAR)."""
-    ok_dir = tmp_path / "ok"
-    _make_venv(ok_dir, python_target=sys.executable)
-    absent_dir = tmp_path / "absent"
-    absent_dir.mkdir()
-    node_dir = tmp_path / "node"
-    (node_dir / "node_modules").mkdir(parents=True)
+def test_doctor_covers_both_python_and_node_and_flags_any_bad(tmp_path):
+    """do_doctor diagnostica AMBOS runtimes (venv python + node_modules) en una pasada y
+    sale 1 si alguno está mal. C98 amplía el doctor de C97 (que solo miraba venvs). Se
+    inyecta un SERVICES con un venv sano, un venv ausente, un node sano y un node ausente."""
+    venv_ok = tmp_path / "vok"
+    _make_venv(venv_ok, python_target=sys.executable)
+    venv_bad = tmp_path / "vbad"
+    venv_bad.mkdir()  # sin .venv
+    node_ok = tmp_path / "nok"
+    _make_node(node_ok, populated=True)
+    node_bad = tmp_path / "nbad"
+    _make_node(node_bad, populated=None)  # sin node_modules
 
     services = (
-        f"svcok|Svc OK|{ok_dir}|8000|.venv|cmd|hintOK\n"
-        f"svcabs|Svc Absent|{absent_dir}|8001|.venv|cmd|hintABS\n"
-        f"svcnode|Svc Node|{node_dir}|8002|node_modules|cmd|hintNODE"
+        f"vok|Venv OK|{venv_ok}|8000|.venv|cmd|hintVOK\n"
+        f"vbad|Venv Bad|{venv_bad}|8001|.venv|cmd|hintVBAD\n"
+        f"nok|Node OK|{node_ok}|8002|node_modules|cmd|hintNOK\n"
+        f"nbad|Node Bad|{node_bad}|8003|node_modules|cmd|hintNBAD"
     )
     r = _bash(f"SERVICES='{services}'\ndo_doctor; echo rc=$?")
     out = r.stdout + r.stderr
 
-    assert "Svc OK" in out and "OK (python" in out
-    assert "Svc Absent" in out and "AUSENTE" in out
-    # el servicio node (marker != .venv) NO se diagnostica como venv
-    assert "Svc Node" not in out, f"do_doctor no debe chequear servicios no-python: {out}"
-    assert "rc=1" in out, f"con un venv ausente, do_doctor debe salir 1: {out}"
+    assert "Venv OK" in out and "OK (python" in out
+    assert "Venv Bad" in out and ".venv AUSENTE" in out
+    # C98: los servicios node AHORA se diagnostican (antes se ignoraban).
+    assert "Node OK" in out and "OK (node_modules presente)" in out
+    assert "Node Bad" in out and "node_modules AUSENTE" in out
+    assert "rc=1" in out, f"con deps ausentes, do_doctor debe salir 1: {out}"
 
 
 def test_doctor_all_healthy_exits_zero(tmp_path):
-    ok1 = tmp_path / "a"
-    ok2 = tmp_path / "b"
-    _make_venv(ok1, python_target=sys.executable)
-    _make_venv(ok2, python_target=sys.executable)
+    venv_ok = tmp_path / "v"
+    _make_venv(venv_ok, python_target=sys.executable)
+    node_ok = tmp_path / "n"
+    _make_node(node_ok, populated=True)
     services = (
-        f"a|Svc A|{ok1}|8000|.venv|cmd|hintA\n"
-        f"b|Svc B|{ok2}|8001|.venv|cmd|hintB"
+        f"v|Venv A|{venv_ok}|8000|.venv|cmd|hintA\n"
+        f"n|Node B|{node_ok}|8001|node_modules|cmd|hintB"
     )
     r = _bash(f"SERVICES='{services}'\ndo_doctor; echo rc=$?")
     out = r.stdout + r.stderr
     assert "rc=0" in out, out
-    assert "sanos" in out
+    assert "deps listas" in out  # "Todo el ecosistema (python + node) tiene sus deps listas."
 
 
 def test_doctor_subcommand_is_wired_in_dispatch():

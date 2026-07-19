@@ -201,24 +201,49 @@ check_venv() {
   printf "       recrea: %s\n" "$hint"; return 1
 }
 
-# doctor: diagnostica de UNA VEZ la salud de todos los venvs python del ecosistema, sin
-# arrancar ni instalar nada. Convierte DP-16 (venvs huérfanos por bumps de brew) y DP-17
-# (biohack sin venv) de sorpresa-al-arrancar en diagnóstico temprano.
+# check_node LABEL WORKDIR HINT: estado de node_modules de un servicio node. 0 (OK) /
+# 1 (problema). Read-only. A diferencia de un venv (que puede quedar HUÉRFANO si el python
+# desaparece), node_modules solo está presente-y-poblado o no: un dir vacío cuenta como
+# ausente (npm interrumpido).
+check_node() {
+  local label="$1" workdir="$2" hint="$3"
+  if [ ! -d "$workdir" ]; then
+    printf "  ✗ %-24s no existe %s\n" "$label" "$workdir"; return 1
+  fi
+  if [ ! -d "$workdir/node_modules" ] || [ -z "$(ls -A "$workdir/node_modules" 2>/dev/null)" ]; then
+    printf "  ✗ %-24s node_modules AUSENTE — deps sin instalar\n" "$label"
+    printf "       instala: %s\n" "$hint"; return 1
+  fi
+  printf "  ✓ %-24s OK (node_modules presente)\n" "$label"; return 0
+}
+
+# doctor: diagnostica de UNA VEZ la arrancabilidad de TODO el ecosistema (venvs python +
+# node_modules), sin arrancar ni instalar nada. Convierte DP-16 (venvs huérfanos por bumps
+# de brew) y DP-17 (biohack sin venv), y las deps node ausentes, de sorpresa-al-arrancar en
+# diagnóstico temprano. Agrupa por runtime para que el reporte se lea de un vistazo.
 do_doctor() {
-  echo "== Doctor de venvs del ecosistema (read-only) =="
+  echo "== Doctor de arrancabilidad del ecosistema (read-only) =="
   echo "  python del sistema: $(python3 --version 2>&1)"
+  echo "  node del sistema:   $(node --version 2>&1)"
   local any_bad=0
+  echo "  — servicios python (.venv) —"
   while IFS='|' read -r id label dir port marker cmd hint; do
     [ -z "$id" ] && continue
-    [ "$marker" != ".venv" ] && continue   # solo servicios python con venv
+    [ "$marker" = ".venv" ] || continue
     check_venv "$label" "$dir" "$hint" || any_bad=1
+  done <<< "$SERVICES"
+  echo "  — servicios node (node_modules) —"
+  while IFS='|' read -r id label dir port marker cmd hint; do
+    [ -z "$id" ] && continue
+    [ "$marker" = "node_modules" ] || continue
+    check_node "$label" "$dir" "$hint" || any_bad=1
   done <<< "$SERVICES"
   echo
   if [ "$any_bad" = "1" ]; then
-    echo "  → Hay venvs que impedirían arrancar (DP-16/DP-17). Recrea los marcados antes de 'start'."
+    echo "  → Hay deps que impedirían arrancar (venv DP-16/DP-17 o node_modules). Instálalas antes de 'start'."
     return 1
   fi
-  echo "  ✓ Todos los venvs python del ecosistema están sanos."
+  echo "  ✓ Todo el ecosistema (python + node) tiene sus deps listas."
   return 0
 }
 
