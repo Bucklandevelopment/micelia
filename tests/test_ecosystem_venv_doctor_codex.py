@@ -15,6 +15,7 @@ no-hermeticidad que C89 barrió). El `doctor` sobre el ecosistema REAL no se ass
 (su salida depende de qué venvs existan) — solo su lógica, con entradas controladas.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -174,3 +175,47 @@ def test_doctor_subcommand_is_wired_in_dispatch():
     text = _LAUNCHER.read_text(encoding="utf-8")
     assert "doctor) do_doctor" in text, "el subcomando `doctor` no está cableado en el case"
     assert "start|stop|status|doctor" in text, "la ayuda de uso no menciona `doctor`"
+
+
+# =============================================================================
+# preflight — el doctor integrado en `start` (C99): avisa, no aborta
+# =============================================================================
+
+
+def test_preflight_warns_on_blockers_but_does_not_abort(tmp_path):
+    """Con un blocker, el preflight muestra el reporte del doctor Y la guía propia del
+    arranque (se omitirán / Ctrl-C), pero devuelve 0 → `start` sigue arrancando el resto."""
+    venv_bad = tmp_path / "vbad"
+    venv_bad.mkdir()  # sin .venv
+    services = f"vbad|Venv Bad|{venv_bad}|8001|.venv|cmd|hintVBAD"
+    r = _bash(f"SERVICES='{services}'\npreflight; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "PREFLIGHT" in out and "OMITIRÁN" in out, out
+    assert "Ctrl-C" in out
+    assert "rc=0" in out, f"el preflight NO debe abortar el arranque: {out}"
+
+
+def test_preflight_no_warning_when_all_healthy(tmp_path):
+    """Sin blockers, el preflight no añade el aviso de omisión — solo el visto bueno del
+    doctor. (Anti-ruido: no asusta cuando todo está listo.)"""
+    venv_ok = tmp_path / "v"
+    _make_venv(venv_ok, python_target=sys.executable)
+    services = f"v|Venv A|{venv_ok}|8000|.venv|cmd|hintA"
+    r = _bash(f"SERVICES='{services}'\npreflight; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "deps listas" in out
+    assert "PREFLIGHT" not in out, f"no debe avisar de omisión si todo está sano: {out}"
+    assert "rc=0" in out
+
+
+def test_start_runs_preflight_before_infra():
+    """`do_start` corre el preflight, y ANTES de levantar infra/gateway — para que el
+    diagnóstico salga primero, no intercalado con los arranques."""
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    m = re.search(r"do_start\(\)\s*\{(.*?)\n\}", text, re.DOTALL)
+    assert m, "no se encontró do_start()"
+    body = m.group(1)
+    assert "preflight" in body, "do_start ya no corre el preflight"
+    assert body.index("preflight") < body.index("== Infra"), (
+        "el preflight debe ejecutarse ANTES de la sección de infra"
+    )

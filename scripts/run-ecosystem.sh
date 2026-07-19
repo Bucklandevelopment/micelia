@@ -136,6 +136,8 @@ fi
 # ---- acciones --------------------------------------------------------------
 
 do_start() {
+  preflight
+
   echo "== Infra (podman: postgres+redis+ollama) =="
   if command -v podman-compose >/dev/null 2>&1 || command -v podman >/dev/null 2>&1; then
     make -C "$MICELIA_DIR" docker-infra || echo "  ⚠ docker-infra falló; los backends que necesiten pg/redis degradarán."
@@ -245,6 +247,19 @@ do_doctor() {
   fi
   echo "  ✓ Todo el ecosistema (python + node) tiene sus deps listas."
   return 0
+}
+
+# preflight: corre el doctor ANTES de arrancar y, si hay blockers, da el contexto propio
+# del arranque (qué pasará y cómo abortar) — cierra el bucle diagnóstico→prevención de C97/98.
+# NO aborta: `start_svc` ya OMITE con gracia cada servicio sin deps, así que el resto arranca;
+# el preflight solo lo hace visible DE UNA VEZ arriba, en vez de servicio a servicio.
+preflight() {
+  echo "== Preflight de arrancabilidad =="
+  if ! do_doctor; then
+    echo
+    echo "  ⚠ PREFLIGHT: los servicios sin deps (arriba) se OMITIRÁN; el resto arranca igual."
+    echo "    Ctrl-C ahora si prefieres instalarlos primero (o corre 'doctor' para el detalle)."
+  fi
 }
 
 # Solo despachar cuando se EJECUTA el script, no cuando se SOURCEA (los tests lo
