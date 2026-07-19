@@ -45,6 +45,12 @@ wait_port() {  # wait_port PORT SECONDS
   return 1
 }
 
+# venv_python_ok WORKDIR: 0 si el intérprete del .venv EJECUTA, !=0 si roto/ausente.
+# Fuente única del check de venv-huérfano (C87): lo usan start_svc (para no arrancar un
+# venv muerto) y el doctor (para diagnosticarlo). Un .venv puede existir con el dir intacto
+# pero el python al que apunta desaparecido (brew sube 3.13→3.14) → aquí se caza.
+venv_python_ok() { "$1/.venv/bin/python" -c '' >/dev/null 2>&1; }
+
 # start_svc ID "Etiqueta" WORKDIR PORT DEPS_MARKER "COMANDO" "PISTA_INSTALL"
 # DEPS_MARKER: ruta (relativa a WORKDIR) que debe existir, o "-" si no aplica.
 start_svc() {
@@ -68,7 +74,7 @@ start_svc() {
   # script PROMETE dar ("detecta deps ausentes y reporta el comando en vez de fallar en
   # silencio"). El check `-e` de arriba no lo caza (el dir sigue ahí). Verificamos que
   # el intérprete EJECUTA, no solo que existe. (Real: canela, C87.)
-  if [ "$marker" = ".venv" ] && ! "$workdir/.venv/bin/python" -c '' >/dev/null 2>&1; then
+  if [ "$marker" = ".venv" ] && ! venv_python_ok "$workdir"; then
     echo "  ⚠ $label — .venv existe pero su intérprete no arranca (¿brew actualizó python?). Recrea con:"
     echo "      $hint"
     return 0
@@ -177,6 +183,45 @@ do_status() {
   done <<< "$SERVICES"
 }
 
+# check_venv LABEL WORKDIR HINT: imprime el estado del .venv de un servicio y devuelve
+# 0 (sano) / 1 (problema). Read-only: NO arranca ni instala nada.
+check_venv() {
+  local label="$1" workdir="$2" hint="$3" ver
+  if [ ! -d "$workdir" ]; then
+    printf "  ✗ %-24s no existe %s\n" "$label" "$workdir"; return 1
+  fi
+  if [ ! -e "$workdir/.venv" ]; then
+    printf "  ✗ %-24s .venv AUSENTE — deps sin instalar\n" "$label"
+    printf "       crea: %s\n" "$hint"; return 1
+  fi
+  if ver="$("$workdir/.venv/bin/python" -c 'import platform;print(platform.python_version())' 2>/dev/null)"; then
+    printf "  ✓ %-24s OK (python %s)\n" "$label" "$ver"; return 0
+  fi
+  printf "  ⚠ %-24s HUÉRFANO — el intérprete del .venv no arranca (¿brew subió python?)\n" "$label"
+  printf "       recrea: %s\n" "$hint"; return 1
+}
+
+# doctor: diagnostica de UNA VEZ la salud de todos los venvs python del ecosistema, sin
+# arrancar ni instalar nada. Convierte DP-16 (venvs huérfanos por bumps de brew) y DP-17
+# (biohack sin venv) de sorpresa-al-arrancar en diagnóstico temprano.
+do_doctor() {
+  echo "== Doctor de venvs del ecosistema (read-only) =="
+  echo "  python del sistema: $(python3 --version 2>&1)"
+  local any_bad=0
+  while IFS='|' read -r id label dir port marker cmd hint; do
+    [ -z "$id" ] && continue
+    [ "$marker" != ".venv" ] && continue   # solo servicios python con venv
+    check_venv "$label" "$dir" "$hint" || any_bad=1
+  done <<< "$SERVICES"
+  echo
+  if [ "$any_bad" = "1" ]; then
+    echo "  → Hay venvs que impedirían arrancar (DP-16/DP-17). Recrea los marcados antes de 'start'."
+    return 1
+  fi
+  echo "  ✓ Todos los venvs python del ecosistema están sanos."
+  return 0
+}
+
 # Solo despachar cuando se EJECUTA el script, no cuando se SOURCEA (los tests lo
 # sourcean para ejercer `start_svc`/helpers en aislamiento; sin este guard, sourcear
 # arrancaría el ecosistema entero por el default `start`). Idiom estándar de bash.
@@ -185,6 +230,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     start)  do_start ;;
     stop)   do_stop ;;
     status) do_status ;;
-    *) echo "Uso: $0 {start|stop|status} [--with-codking-inference]"; exit 2 ;;
+    doctor) do_doctor ;;
+    *) echo "Uso: $0 {start|stop|status|doctor} [--with-codking-inference]"; exit 2 ;;
   esac
 fi
