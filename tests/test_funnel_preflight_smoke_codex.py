@@ -147,3 +147,93 @@ async def test_funnel_login_wrong_password_is_401(require_postgres, no_domain_pr
             assert bad.status_code == 401, (
                 f"login con password equivocada dio {bad.status_code} en vez de 401: {bad.text}"
             )
+
+
+async def test_funnel_refresh_renews_session_preserving_identity(
+    require_postgres, no_domain_probes
+):
+    """
+    Cierra el CICLO DE SESIÓN del funnel que C94 dejó sin ejercer: register/login devuelven un
+    `refresh_token` que nadie canjeaba de punta a punta contra el store real.
+
+      1. register (auto-login) → access + refresh de un usuario REAL persistido.
+      2. REFRESH → se canjea ESE refresh en `/auth/refresh` → par nuevo. El access renovado
+         SIGUE identificando al mismo usuario (`sub == user_id`) — la renovación no pierde la
+         identidad — y SIGUE concediendo acceso (`/me` → auth_identity == user_id). Es lo que
+         permite a un usuario del funnel seguir dentro cuando su access caduca, sin re-login.
+      3. ROTACIÓN → el refresh devuelto por el paso 2 TAMBIÉN sirve para otro refresh → el
+         ciclo se repite indefinidamente (sesión larga sin volver a introducir credenciales).
+    """
+    from app.core.security import jwt_auth
+    from app.main import app
+
+    email = _fresh_email()
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            reg = await client.post(
+                "/api/v1/auth/register", json={"email": email, "password": _PASSWORD}
+            )
+            assert reg.status_code == 201, reg.text
+            first_refresh = reg.json()["refresh_token"]
+
+            user = await app.state.user_store.get_user_by_email(email)
+            assert user is not None
+            user_id = user["user_id"]
+
+            # --- (2) REFRESH: canjear el refresh de register por un par nuevo ---
+            r1 = await client.post(
+                "/api/v1/auth/refresh", json={"refresh_token": first_refresh}
+            )
+            assert r1.status_code == 200, r1.text
+            renewed = r1.json()
+            assert jwt_auth.decode_token(renewed["access_token"]).get("sub") == user_id, (
+                "el access renovado no identifica al usuario del funnel; la sesión perdió la "
+                "identidad al refrescar."
+            )
+
+            # el access renovado concede acceso autenticado como ese mismo usuario
+            me = await client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {renewed['access_token']}"},
+            )
+            assert me.status_code == 200, me.text
+            assert me.json()["auth_identity"] == user_id
+
+            # --- (3) ROTACIÓN: el refresh nuevo también sirve → ciclo repetible ---
+            r2 = await client.post(
+                "/api/v1/auth/refresh", json={"refresh_token": renewed["refresh_token"]}
+            )
+            assert r2.status_code == 200, (
+                "el refresh rotado no sirvió para renovar de nuevo; la sesión del funnel no "
+                f"se puede sostener sin re-login. Respuesta: {r2.text}"
+            )
+            assert jwt_auth.decode_token(r2.json()["access_token"]).get("sub") == user_id
+
+
+async def test_funnel_access_token_is_rejected_as_a_refresh(
+    require_postgres, no_domain_probes
+):
+    """En el contexto del funnel: el ACCESS token del login NO sirve como refresh (el endpoint
+    exige `type == 'refresh'`). Evita que un access robado/reusado extienda la sesión."""
+    from app.main import app
+
+    email = _fresh_email()
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            reg = await client.post(
+                "/api/v1/auth/register", json={"email": email, "password": _PASSWORD}
+            )
+            assert reg.status_code == 201, reg.text
+            access = reg.json()["access_token"]
+
+            bad = await client.post(
+                "/api/v1/auth/refresh", json={"refresh_token": access}
+            )
+            assert bad.status_code == 401, (
+                f"un access token fue aceptado como refresh ({bad.status_code}); el guard de "
+                f"type del funnel no se está honrando. {bad.text}"
+            )
