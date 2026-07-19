@@ -42,6 +42,24 @@ _PROJECTS = _MICELIA.parent
 _AUTOMATION_SDK = _PROJECTS / "auto-mat-ion" / "src" / "integrations" / "vital-core.ts"
 
 
+def _config_default(field: str):
+    """Default DECLARADO de un campo de Settings (config.py), inmune al entorno.
+
+    Hermeticidad (C89): estos tests pinean el DEFAULT de config.py (lo dicen sus
+    docstrings: "por defecto"), pero instanciar `Settings()` LAYERea el `.env` real
+    (`env_file=".env"`) y las env-vars del proceso encima del default. Micelia TIENE un
+    `.env` (4.6 KB), así que `Settings().ollama_code_enabled` no reportaba el default de
+    config.py sino el valor efectivo de ESTA máquina: un `OLLAMA_CODE_ENABLED=true` en el
+    `.env`/entorno (o `IMPERIO_LAB_ENABLED=false`) hacía FALLAR el test sin que el default
+    —lo que el test dice pinear— hubiera cambiado. `model_fields[...].default` lee el
+    literal de config.py sin construir Settings → cero capas de entorno. (Eco del patrón
+    `Settings(_env_file=None, ...)` que ya usa test_core_config_codex.py.)
+    """
+    from app.core.config import Settings
+
+    return Settings.model_fields[field].default
+
+
 # --------------------------------------------------------------------------- #
 # El único fantasma REAL: devtools / ollama-code.
 # --------------------------------------------------------------------------- #
@@ -52,10 +70,7 @@ def test_devtools_phantom_is_disabled_by_default():
     sondea :8890 cada 30s para siempre y lo lista como "sin conexión" (el ruido que
     destapó DP-14 en C83).
     """
-    from app.core.config import Settings
-
-    s = Settings()
-    assert s.ollama_code_enabled is False, (
+    assert _config_default("ollama_code_enabled") is False, (
         "ollama_code_enabled volvió a True. `ollama-code` NO EXISTE (nadie bindea :8890 "
         "en el árbol) → se sondearía cada 30s eternamente. Si el proyecto YA existe, "
         "actualiza este test y el comentario de config.py; si no, déjalo en False."
@@ -98,8 +113,6 @@ def test_testlab_port_matches_the_port_automation_announces():
             "auto-mat-ion/src/integrations/vital-core.ts no presente; check cross-repo "
             "omitido (esperado en checkout aislado de Micelia)."
         )
-    from app.core.config import Settings
-
     text = _AUTOMATION_SDK.read_text(encoding="utf-8")
     m = re.search(r"servicePort:\s*(\d+)", text)
     assert m is not None, (
@@ -107,8 +120,10 @@ def test_testlab_port_matches_the_port_automation_announces():
         "imperio_lab_url cambió de forma. Re-audita antes de confiar en este pin."
     )
     announced = int(m.group(1))
+    # nota: el puerto del registry sale del DEFAULT de config.py (_config_default),
+    # no de `Settings()` — un override local en `.env` no es "drift del contrato".
 
-    registry_port = int(Settings().imperio_lab_url.rsplit(":", 1)[1])
+    registry_port = int(_config_default("imperio_lab_url").rsplit(":", 1)[1])
     assert announced == registry_port, (
         f"DRIFT testlab↔auto-mat-ion: auto-mat-ion anuncia servicePort={announced} pero "
         f"el registry sondea imperio_lab_url puerto {registry_port}. El registry marcaría "
@@ -140,9 +155,7 @@ def test_imperio_lab_stays_enabled_by_default():
     """`testlab` apunta a un dominio REAL (auto-mat-ion, arrancable en local con
     run-ecosystem.sh) → su default sigue en True. Contrapeso del fix de devtools: C84
     desactivó UNO de los dos, no ambos."""
-    from app.core.config import Settings
-
-    assert Settings().imperio_lab_enabled is True, (
+    assert _config_default("imperio_lab_enabled") is True, (
         "imperio_lab_enabled pasó a False. testlab NO es un fantasma: es auto-mat-ion "
         "(servicePort 8891). Si se desactiva, el registry deja de ver un dominio real."
     )
