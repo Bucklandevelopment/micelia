@@ -16,6 +16,24 @@
 
 ---
 
+## 2026-07-19 — Ciclo 99 (**cierro el bucle diagnóstico→prevención: `start` corre el doctor ANTES de tocar nada. La foto completa de arrancabilidad arriba, de una vez, en vez de descubrir los blockers servicio a servicio**): tarea (a) del plan de C98. C97/C98 dieron el diagnóstico (doctor); C99 lo pone donde previene — al principio de `start`.
+
+- **Hecho:** 1 commit — `976410a` `feat(scripts): preflight — start corre el doctor primero (diagnóstico → prevención)`. Función `preflight()` que corre `do_doctor` y, **si hay blockers**, añade el contexto propio del arranque (*"los servicios sin deps se OMITIRÁN; el resto arranca; Ctrl-C para instalarlos primero"*). `do_start` la llama **antes** de la infra. **NO aborta** — `start_svc` ya omite con gracia cada servicio sin deps, así que el resto arranca igual; el preflight solo lo hace **visible por adelantado** en vez de intercalado. Sin blockers, **no añade ruido** (solo el visto bueno del doctor).
+- **Verify:** **verde** — `make verify`: `1635 passed, 17 skipped` (+3), cobertura ~95%.
+- **Verificado en vivo:** `preflight` en aislamiento sobre el ecosistema real → muestra el reporte completo (biohack venv ABSENT, auto-mat-ion node ABSENT, resto OK) + el aviso de omisión, y **devuelve 0** (no aborta). Exactamente el comportamiento buscado.
+- **Disciplina C60–C99:** +3 tests herméticos (SERVICES inyectado): preflight **avisa-pero-no-aborta** (rc=0 con un blocker), **no-avisa-si-todo-sano** (anti-ruido), y `do_start` corre el preflight **ANTES de la infra** (static, con índices). **Mutation-verified:** quitar el aviso, hacerlo abortar (`return 1`), o quitar la llamada de `do_start` → rompe el pin correspondiente.
+- **Higiene / guardarraíles:** read-only sobre el diagnóstico; **no instala nada** (ni las deps de biohack/auto-mat-ion — reportar, no arreglar); no arranca infra en el test; `.env` no leído. Sin residuales.
+
+**DECISIÓN PENDIENTE (para Jessicache):** **ninguna nueva.** El preflight solo informa y sigue; no toma decisiones. Sigue el hallazgo de C98 (**DP-18**: `cd auto-mat-ion && npm install`), **DP-17** (biohack python), **DP-16** (venvs huérfanos — el doctor los caza), la menor de C84 y **DP-1..DP-4**.
+
+**HITO — arrancabilidad local del ecosistema SATURADA (C87→C99):** el camino local-first está completo y con red de seguridad: launcher que arranca los 6 dominios (C85), detección de venv-huérfano (C87), doctor de venvs (C97) + node (C98), y preflight que lo integra en `start` (C99). Lo que queda para arrancar biohack/auto-mat-ion de verdad son **pasos mecánicos de deps** (DP-17/DP-18) que el doctor ya señala, más las **decisiones de infra del funnel** (DP-1..DP-4, de Jessicache).
+
+**Mañana (Ciclo 100):** con arrancabilidad y funnel-local saturados, el valor está en **volver al núcleo de contratos/cobertura**: **(a)** un contrato inter-proyecto aún sin pin ejecutable (p.ej. el 6º dominio del registry, o el ingest de eventos `source=codking` que comparte :8000 y no tiene slot — mencionado desde DP-12/C84 pero nunca pineado), o **(b)** cobertura donde el mutation-testing revele huecos REALES (no tautológicos), o **(c)** si Jessicache mueve DP-17/DP-18, cerrar los arranques live que faltan (biohack 3er dominio, auto-mat-ion 4º) — el contrato ya pineado, el doctor dirá cuándo. **Nota de rumbo (C87-99, 13 ciclos):** el eje de arrancabilidad está **saturado**; como con el funnel (C93-96), conviene reconocerlo y volver a donde haya valor nuevo, no exprimir mejoras marginales del launcher. Recordatorio honesto C66–C99: **el diagnóstico vale más donde previene** (doctor en `start`, no solo como subcomando); **avisar > abortar** cuando el resto puede funcionar; **saturado un eje, pivotar** (2ª vez que lo aplico: funnel C96, arrancabilidad C99); **reportar ≠ arreglar**. Local-first M1: jamás `docker-full`; parar todo lo que se arranque; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-19 — Ciclo 98 (**completo el doctor: ahora cubre los servicios NODE además de los venv python → diagnóstico de arrancabilidad de TODO el ecosistema en una pasada. Y al correrlo en vivo DESTAPA un blocker nuevo que nadie sabía: auto-mat-ion no tiene node_modules**): tarea (b) del plan de C97. El doctor de C97 solo miraba venvs python; los 5 servicios node (panel, biohack-fe, ideacursi, codking-vis, automation) quedaban fuera del diagnóstico — su `node_modules` ausente seguía siendo sorpresa-al-arrancar.
 
 - **Hecho:** 1 commit — `7e1aa75` `feat(scripts): doctor cubre también los servicios node — diagnóstico de arrancabilidad completo`.
