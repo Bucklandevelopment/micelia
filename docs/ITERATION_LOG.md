@@ -16,6 +16,30 @@
 
 ---
 
+## 2026-07-21 — Ciclo 110 (**mismo mutation-testing dirigido de C109, ahora sobre `frangels/orchestrator` — el motor de modelos. Estaba MEJOR pineado que prompt_executor (mata casi todo), pero aún escondía 3 supervivientes reales + la última línea sin cubrir. Y de paso el harness me enseñó a no fiarme de mi propio grep**): tarea (a) del plan de C109.
+
+**Método + un tropiezo honesto:** el módulo tenía **100 tests, 99% líneas** (2 sin cubrir: 66-67). Apliqué mutaciones y — igual que C109 — verifiqué que cada una **se aplicara**. **Pero mi `run()` tenía un bug**: `grep -qE "^[0-9]+ passed"` no casaba la línea de resumen de pytest, así que **el baseline SIN mutar salía "killed"** → toda la primera tanda era ruido. Lo detecté justo por eso (baseline debe SOBREVIVIR). Rehíce el harness (`grep "failed"` → killed; si no, survived), confirmé baseline verde, y repetí. **Lección: verifica el baseline del harness antes de creerte los resultados.**
+
+**Con el harness correcto:** `chat`/`select_angel` **matan casi todo** (prefer_paid AND/OR, fallbacks[1:4], orden de tier, openai-antes-de-anthropic, filtro de privacidad — todas KILLED). Módulo genuinamente bien cubierto. **3 supervivientes reales:**
+
+- **Hecho:** 1 commit — `9e39e39` `test(frangels): matar mutaciones supervivientes + cerrar la última línea sin cubrir`. 4 tests nuevos, cada uno mata su mutación (verificado):
+  1. **`orch.aclose()` cierra el cliente cacheado** (líneas **66-67**, sin cubrir — los tests viejos cerraban el cliente A MANO, no vía `aclose`): mata el guard `if _client and not is_closed` → sin él, el cliente queda abierto en cada shutdown (la fuga que arregló C70). + rama no-op.
+  2. **desempate de latencia en `select_angel`**: una latencia DESCONOCIDA (`None`→`9999`) va al FINAL; mata la mutación `or 0` (que la pondría primera). Ningún test cubría el desempate con None.
+  3. **`_try_paid_provider` respeta el gate de CUOTA**: con keys presentes pero `can_use=False` **NO** llama al provider de pago (`assert_not_awaited`); mata la mutación que quita `and can_use(...)` — que **gastaría paid pese a cuota agotada** (openai Y anthropic). El más valioso: un fallo de gate de cuota = dinero.
+- **Verify:** **verde** — `make verify`: `1666 passed, 19 skipped` (+4), cobertura **99%→100%** del módulo.
+- **Disciplina:** cada test **mata su mutación** (suite roja con ella) y pasa con el real. No tautológicos.
+- **Higiene:** test-only, cero servicios/infra, sin residuales.
+
+**Contraste C109 vs C110 (dato de valor):** prompt_executor tenía **5 supervivientes** pese a 100% líneas; orchestrator solo **3** pese a 99% — está mejor pineado (100 tests vs 17). **El mutation-testing distingue módulos "cubiertos de verdad" de "cubiertos de mentira"**, cosa que el % de líneas no hace. Ambos ahora al 100% real.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-17** (biohack py3.14), **DP-7** (canales, latente), **DP-1..DP-4** (funnel).
+
+**Mañana (Ciclo 111):** **(a)** un 3er módulo núcleo por mutation-testing — `compute_router` o `quota_manager`/`provider_store` si tienen supervivientes de valor (dinero/cuota son áreas sensibles). **(b)** biohack si Jessicache mueve DP-17. **(c)** si el núcleo está sólido de verdad (pocos supervivientes en 2-3 módulos), declararlo y pivotar a otra cosa (docs de deploy DP-1..4, o un e2e cross-proyecto). Recordatorio honesto C66–C110: **verifica el BASELINE de tu harness de mutación antes de creer los resultados** (hoy un grep malo daba killed en verde); **el % de líneas miente, el mutation-testing no** (99% con 3 huecos reales); **prioriza los supervivientes que cuestan dinero** (el gate de cuota de paid); **un módulo bien pineado mata casi todo** — reconócelo y no inventes huecos. Local-first M1: jamás `docker-full`; parar todo; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 109 (**cobertura núcleo con valor REAL: `prompt_executor.py` estaba al 100% de LÍNEAS y aun así el mutation-testing destapó 5 comportamientos cubiertos-pero-no-asertados. 100% de líneas ≠ comportamiento pineado**): tarea (b) del plan de C108. No inflar cobertura tautológica — buscar huecos que muerdan.
 
 **Método (mutation-testing dirigido, no fe en el %):** el módulo ya tenía 17 tests y **100% de líneas** (0 missing). En vez de declararlo "cubierto", **apliqué mutaciones plausibles y corrí la suite**: las que SOBREVIVEN son los huecos reales. Verificando además que cada mutación **se aplicaba de verdad** (descarté 1 falso positivo cuyo patrón no casaba con el código). **5 supervivientes confirmados.**
