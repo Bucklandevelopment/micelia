@@ -1,0 +1,52 @@
+# DP Ledger — registro autoritativo de Decisiones Pendientes
+
+> **Fuente de verdad** del estado de cada DP (Decisión Pendiente) del `ITERATION_LOG.md`.
+> Creado en C116 (consolidación) porque el estado estaba **derivando**: cada ciclo re-listaba
+> las DP en su sección "DECISIÓN PENDIENTE" y algunas cerradas/decididas seguían apareciendo
+> como pendientes (drift, patrón C81-84). A partir de aquí: **este fichero manda**; los ciclos
+> lo ACTUALIZAN en vez de re-derivar la lista de memoria.
+>
+> Verificado contra el código en C116 (`make verify` verde, 1717 passed — los contratos
+> pineados de las cerradas se sostienen).
+
+## Leyenda de estado
+
+- **CERRADA** — resuelta (fix + guard), sin acción del dueño pendiente.
+- **DECIDIDA** — el dueño YA decidió; nada pendiente salvo una condición de reapertura explícita
+  o un paso de ejecución (humano/infra), no una decisión.
+- **ABIERTA** — requiere una decisión del dueño (o de un repo hermano) aún no tomada.
+
+## Registro
+
+| DP | Tema | Estado | Nota (verificado C116) |
+|----|------|--------|------------------------|
+| DP-1 | Estrategia de hosting del funnel | **DECIDIDA** (runbook 2026-07-17) | Hosting propio local (M1). Ejecución = pasos ⏳HUMANO (no decisión). |
+| DP-2 | Subdominios del funnel | **DECIDIDA** | `micelia.idmmortality.com` host único; `register.`/`login.` = landings viejas. |
+| DP-3 | Secretos del funnel | **DECIDIDA** | `deploy/.env` (chmod 600, fuera de git). |
+| DP-4 | Postgres de producción | **DECIDIDA** | La del compose local (`idm-postgres`). |
+| DP-5 | Rebrand env-var URL orquestador | **ABIERTA** (parte decisión) / CERRADA (bug, C82) | El compose inyecta **ambos** `VITAL_*`+`IDM_*` (alias, verificado C116). Decisión abierta: dejar-ambos (hoy) / retirar `IDM_*` / migrar a `MICELIA_URL`. Hermano gemelo de DP-7. |
+| DP-6 | `user_id` del pipeline research-to-course | **ABIERTA** (en ideacursi) | Pineado Micelia-side (C81, 5 pins). Fallo SILENCIOSO (200 con curso que no llega a la BD de ideacursi). Resolución en ideacursi (seed / auto-create / propagar identidad). |
+| DP-7 | Namespace de canales Redis (`idm.*`/`vital.*`/`micelia.*`) | **DECIDIDA** (C80: documentar, NO migrar) | ⚠️ **corrección de drift C116**: ciclos recientes (incl. C108/C114/C115) la re-listaban como "pendiente"; NO lo es. El dueño decidió no migrar. Guardada (C108, `test_automation_ingest_path`). **Reabre SOLO** si se quiere cablear consumo pub/sub cruzado → migrar los 6 repos coordinadamente a `micelia.*`. |
+| DP-8 | `/health` de canela sin `version` | **CERRADA** (C79) | Micelia maneja `version:null`; pineado cross-repo. Acción futura opcional (canela añade version) — no bloquea. |
+| DP-9 | Campo `total` global del panel | **CERRADA** (descartada, C71) | Era fabricación; descartada. No re-listar. |
+| DP-10 | Blindaje request+response del panel | **CERRADA** (C78) | Guards de contrato del panel. |
+| DP-11 | Coherencia de puertos cross-repo (Dockerfiles) | **CERRADA** (C77) | La suite lee los Dockerfiles hermanos: puerto ruteado por el gateway == puerto que el dominio EXPONE. |
+| DP-12 | Mapa de puertos triplicado del ecosistema | **CERRADA** (C76) | `scripts/ecosystem-ports.json` fuente única + pins. |
+| DP-13 | Sonda load-bearing del gateway en compose | **CERRADA** (C75) | Pineada (`test_deploy_contract`). |
+| DP-14 | Dominios fantasma vs invisibles en el registry | **CERRADA** (C84) | Auditada: `testlab`=auto-mat-ion (contrato vivo); solo `devtools`/ollama-code era fantasma → desactivado. |
+| DP-15 | Hint del registry sugería `docker-full` | **CERRADA** (C85) | El hint deduce la topología (nativo → `run-ecosystem.sh start`). |
+| DP-16 | Venvs huérfanos por bumps de brew | **CERRADA** (C97) | El `doctor` de `run-ecosystem.sh` los caza temprano. |
+| DP-17 | biohack no compila en python 3.14 | **ABIERTA** (dueño) | `pandas`/numpy pinneados sin wheel cp314 (C102). Decisión: **pyenv 3.13** (parametrizar `setup`) o **bump requirements**. Único dominio sin ejercer live. |
+| DP-18 | auto-mat-ion sin `node_modules` | **CERRADA** (C102) | `run-ecosystem.sh setup` → `npm install`. |
+| DP-19 | ideacursi `node_modules` incompleto | **CERRADA** (C102) | `setup` completó el árbol (`reflect-metadata`). |
+| DP-20 | ideacursi exige redis-stack en :6380 | **CERRADA** (C104) | El compose expone `:6380` (RediSearch para el vector). |
+| DP-21 | Colisión dev/prod de `container_name` | **CERRADA** (C106) | Infra dev de micelia renombrada a `micelia-*`. |
+| C84-minor | Eliminar el slot `devtools`/`ollama_code_*` | **ABIERTA** (dueño) | Hoy solo **desactivado** (`ollama_code_enabled=False`, verificado C116). Se elimina si el dueño confirma que `ollama-code` no es proyecto planificado. |
+
+## Lo genuinamente PENDIENTE del dueño (resumen)
+
+- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-6 (en ideacursi), DP-17 (biohack python), C84-minor (borrar slot devtools).
+- **Pasos humanos de ejecución (no decisión):** DP-1..DP-4 → panel IONOS (A-record + API key DDNS), port-forward TP-Link 80/443, `pmset`. Verificables con `scripts/funnel-preflight.sh` (C115).
+- **Decidida, no re-listar como pendiente:** DP-7 (documentar, no migrar).
+
+Todo lo demás: **CERRADA**.
