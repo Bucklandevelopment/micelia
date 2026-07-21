@@ -16,6 +16,32 @@
 
 ---
 
+## 2026-07-21 — Ciclo 103 (**el 3er slot del registry, `education`, VERIFICADO EN VIVO por fin. Con las deps de ideacursi ya OK (C102), levanto la infra que le faltaba y lo arranco de verdad contra el gateway: `education healthy=True, version=0.1.0`. Cerrar el boot destapó que DP-20 no era "redis" a secas sino redis-STACK**): tarea (a) del plan de C102. Ciclo de verificación (C83-style): sin código, con evidencia de ejecución.
+
+**La cadena de arranque de ideacursi, destapada capa a capa (ejerciendo, no leyendo):** con `reflect-metadata` ya instalado (C102), el boot avanzó y fue chocando con cada dependencia real de arranque:
+1. **redis :6380** — `ECONNREFUSED` (DP-20, C102). Levanto redis. Avanza.
+2. **redis-STACK, no plano** — el `RedisVectorService` hace **`FT.CREATE`** (índice vectorial RediSearch) EN EL ARRANQUE → con `redis:7-alpine` plano: `ERR unknown command 'FT.CREATE'` → `Failed to start application` (FATAL). Cambio a `redis/redis-stack-server` (mapeado a :6379+:6380). Avanza.
+3. **Ollama** — `fetch failed` al listar modelos, pero **NO fatal**: el backend lo loguea y sigue.
+   → `Nest application successfully started`, **`:5050 UP`**.
+
+- **Verificado en el SISTEMA REAL (el cierre que faltaba para el 3er slot):**
+  - **ideacursi `/api/health` (directo):** `status: degraded` (200; postgres/ollama caídos, `PG_POOL` lazy como predijo C101), **`version: 0.1.0`, `category: education`, `service: ideacursi-tool`**.
+  - **el registry del gateway, sondeando en vivo:** `education → {healthy: True, latency_ms: 7.81, version: '0.1.0', error: None}`. **El slot vira a healthy con version**, exactamente el contrato que C101 pineó por lectura. **DP-8 confirmado en vivo:** ideacursi SÍ trae `version` (a diferencia de canela).
+- **Slots live-verificados: 3 de 6** — `security`(cybertools, C83), `research`(canela, C87... vía arranque), `education`(ideacursi, HOY). El contrato SDK↔registry (C86/88/90/92) + los 3 dominios que arrancan, ejercidos de punta a punta.
+- **Hecho:** ningún commit de código — **C103 es verificación**; lo honesto es no fabricar fix. El contrato de education ya estaba pineado (C101) y su arreglo real (infra) es decisión del dueño (abajo). Único artefacto: esta entrada.
+- **Verify:** `make verify` **verde** (sin cambios desde C102: `1646 passed, 19 skipped`).
+- **Higiene:** todo parado y estado restaurado — ideacursi (nodemon) y gateway parados; **mi contenedor `micelia-test-redis` eliminado**; el stack `idm-*` del usuario **intacto en Exited** (nunca tocado); **podman machine detenida** (estaba parada al empezar). `:8888/:5050/:6379/:6380/:3001` libres, cero residuales. Repo hermano ideacursi **solo leído/ejecutado** (deps ya instaladas en C102; hoy solo env-vars de arranque). `.env` no leído (usé `BACKEND_PORT=5050` explícito).
+
+**DECISIÓN PENDIENTE (para Jessicache):**
+- **DP-20 REFINADA (importante para el arranque del ecosistema):** ideacursi exige **redis-stack (RediSearch) en :6380** para arrancar — hace `FT.CREATE` de un índice vectorial en el boot. **El `make docker-infra` de Micelia levanta redis PLANO en :6379**, que **NO** satisface esto → `run-ecosystem.sh start` arrancaría ideacursi y crashearía en `FT.CREATE`. Para que el ecosistema arranque completo en local hace falta que la infra provea **redis-stack en :6380** (además del redis plano :6379 que usa el módulo analytics). Es infra (compose/docker-infra), decisión tuya: ¿cambiamos la imagen de redis a redis-stack y añadimos el bind :6380? Menor pero bloquea el arranque live de education vía `start`.
+- **DP-17 (biohack, python 3.14)** y las de INFRA del funnel (**DP-1..DP-4**) siguen igual. DP-18/DP-19 **cerradas** (C102).
+
+**Mañana (Ciclo 104):** **(a)** si Jessicache aprueba DP-20, ajustar `docker-infra`/compose a redis-stack :6380 y hacer que `run-ecosystem.sh start` levante el ecosistema con education incluido — cerraría el arranque completo local. **(b)** El 4º slot node-arrancable: **auto-mat-ion** (DP-18 resuelto) publica por Redis, no REST — verificar su registro/heartbeat live si aporta (distinto mecanismo). **(c)** Si no hay más live-verificación que rinda, volver a cobertura núcleo. Recordatorio honesto C66–C103: **ejercer destapa las capas que la lectura no da** (hoy: redis→redis-stack→ollama, 3 capas que ningún grep habría ordenado); **"redis" no era el contrato — redis-STACK sí** (el `FT.CREATE` es el detalle que importa, como el puerto de testlab en C84); **degradado ≠ caído** (ideacursi 200 `degraded` → el registry lo ve healthy, correcto); **no fabricar fix en un ciclo de verificación** (DP-20 es infra del dueño); **parar y restaurar TODO** (contenedor mío borrado, stack del usuario intacto). Local-first M1: jamás `docker-full`; parar/eliminar todo lo que se arranque; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅** (ciclo de verificación: 3er slot live-confirmado, DP-20 refinada, cero residuales)
+
+---
+
 ## 2026-07-19 — Ciclo 102 (**Jessicache AUTORIZA instalar deps de dominio. Construyo `run-ecosystem.sh setup` y lo corro en vivo: desbloqueo 2 de 3 dominios (auto-mat-ion DP-18, ideacursi DP-19), el 3º (biohack DP-17) falla como predije — pandas no compila en 3.14 — y el propio setup me enseña un fallo de diseño: dejaba venvs a medias engañosos**): tarea autorizada explícitamente por Jessicache (C101 pidió permiso; C102 lo concede). **Primer punto de la rutina que MODIFICA repos hermanos** — y solo su árbol de deps gitignored (`node_modules`/`.venv`), nunca su código ni su `.env`.
 
 - **Hecho:** 2 commits.
