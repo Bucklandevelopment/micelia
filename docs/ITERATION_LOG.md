@@ -16,6 +16,26 @@
 
 ---
 
+## 2026-07-21 — Ciclo 115 (**scaffolding del deploy del funnel: un `funnel-preflight` que verifica la cadena DNS→puerto→TLS→gateway de un tirón. Preparar, NO decidir — DP-1..DP-4 ya estaban decididas; lo que faltaba era tooling para los pasos ⏳HUMANO. Y el smoke live acierta el estado pre-migración**): tarea (b) del plan de C114.
+
+**Auditoría antes de empezar (para no decidir de más ni pisar WIP):** DP-1..DP-4 están **[x] DECIDIDAS** por Jessicache (2026-07-17): hosting local, host único `micelia.idmmortality.com`, secretos en `deploy/.env`, postgres del compose. Lo que queda son **pasos de PANEL humanos** (A-record IONOS, port-forward TP-Link 80/443, pmset) + su **verificación manual** (dig/curl/openssl), que el runbook lista suelta. No hay tooling de verificación (`deploy/scripts` solo tiene ddns/pg-backup/stack-up). El runbook es **WIP del usuario → no se toca**.
+
+- **Hecho:** 1 commit — `1e4c886` `feat(scripts): funnel-preflight — verifica la cadena de deploy del funnel en un comando`. **`scripts/funnel-preflight.sh [host]`**: read-only, agrupa los 4 checks en un comando — **DNS** resuelve, **:443** alcanzable, **TLS** válido, **gateway `/api/v1/health`** por HTTPS — y por cada ✗ dice **qué sección del runbook** mirar. No decide nada, no cambia infra: solo consultas (dig/nc/openssl/curl GET). Es el patrón del doctor de venvs (C97) aplicado a la verificación del deploy.
+- **Diseño testeable:** el núcleo de decisión `evaluate_funnel HOST DNS_IP PORT_OK TLS_DAYS HEALTH` es **PURO** (sin I/O), separado de la recolección. `tests/test_funnel_preflight_codex.py` (8, hermético, sin red): all-ok→rc0; cada eslabón mal → ✗ + la pista correcta + rc1; TLS caducado (0d) inválido; parcial sigue en rc1; guard **read-only** (sin verbos mutantes — con cuidado de no confundir `podman logs` en un texto de PISTA con una mutación).
+- **Verify:** **verde** — `make verify`: `1717 passed, 22 skipped` (+8).
+- **Smoke LIVE (bonus, sin tocar nada):** corrido contra el estado ACTUAL, el script **acierta**: DNS → **217.160.0.244** (las landings IONOS viejas — el A-record **aún NO migrado** a casa), :443+TLS OK, y **health ✗** → señala exactamente el paso **⏳HUMANO §2** pendiente. O sea: la capa de checks funciona en red de verdad Y refleja fielmente el estado pre-migración. No es scaffolding a ciegas.
+- **Higiene / guardarraíles:** **NO** toqué el runbook (WIP), infra, `.env` ni secretos. Cambio scripts+test, read-only. Sin residuales.
+
+**Honestidad sobre el valor (compromiso de C114):** esto es **scaffolding útil pero no de alto valor** — el funnel está bloqueado en pasos humanos que solo Jessicache puede dar, así que lo autonomizable era tooling de verificación, no avanzar el deploy. El `funnel-preflight` rinde el día que Jessicache haga los pasos de panel (confirma la cadena de un tirón en vez de dig+nc+openssl+curl a mano). Vale lo que vale; no lo infло.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. El funnel espera **tus pasos de panel** (§2 A-record → IP de casa + API key DDNS IONOS; §3 port-forward 80/443 TP-Link + `pmset`). Tras hacerlos: `scripts/funnel-preflight.sh` confirma. Siguen **DP-17** (biohack py3.14) y **DP-7** (canales, latente).
+
+**Mañana (Ciclo 116):** **honestidad de rumbo — el trabajo autonomizable de alto valor sobre Micelia está prácticamente agotado.** Los eslabones grandes están cerrados (mecanismos C86-100, coexistencia C114, arranque C107, cobertura ≥98% C109-113, scaffolding funnel C115). Lo que queda son **decisiones/pasos del dueño**: **(a)** biohack (DP-17) — necesita tu decisión de python 3.13/bump; **(b)** los pasos de panel del funnel — solo tú; **(c)** DP-7 — migración coordinada, tu decisión. **Recomendación honesta:** si no hay una decisión nueva de Jessicache, el ciclo de mañana rinde poco valor nuevo — mejor un ciclo de **consolidación** (auditar DPs viejas del log por drift, patrón C81-84) o **esperar input del dueño** que seguir generando scaffolding marginal. Se lo digo claro en vez de fabricar trabajo. Recordatorio honesto C66–C115: **preparar ≠ decidir** (DP-1..4 ya decididas; solo tooling); **no tocar el WIP del dueño** (runbook); **un smoke live valida el scaffolding sin cambiar nada**; **decir cuándo un vector se agotó** en vez de rellenar. Local-first M1: jamás `docker-full`; read-only sobre infra/secretos/WIP.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 114 (**el eslabón multi-dominio que 113 ciclos nunca pinearon: DOS dominios registrándose y lateando CONCURRENTEMENTE contra el gateway, con el store persistiendo AMBOS sin cruzarse. Y lo hago REPETIBLE, no una verificación manual de una vez**): tarea (b) del plan de C113 (pivot tras cerrar cobertura).
 
 **El hueco:** todos los guards del contrato SDK↔micelia pinean UN dominio — register (C86), heartbeat (C88), pull (C90), cross PUSH/PULL de uno (C92), ingest codking (C100). **Ninguno cubre la COEXISTENCIA**: varios dominios empujando a la vez al mismo store, cada uno persistido y consultable por su `source` sin contaminarse. El store como punto de encuentro de VARIOS dominios, no de uno.
