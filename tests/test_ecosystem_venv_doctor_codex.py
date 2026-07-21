@@ -200,6 +200,26 @@ def test_install_node_missing_workdir_fails(tmp_path):
     assert "no existe" in out and "rc=1" in out, out
 
 
+def test_install_venv_missing_interpreter_fails_cleanly(tmp_path):
+    """install_venv con un intérprete inexistente (3er arg) falla limpio SIN dejar .venv —
+    parametrización C117 (biohack exige python3.11). Un intérprete ausente se reporta, no se
+    cae silenciosamente al del sistema."""
+    r = _bash(f"install_venv 'Svc' '{tmp_path}' 'python9.99'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "falta el intérprete" in out and "python9.99" in out and "rc=1" in out, out
+    assert not (tmp_path / ".venv").exists(), "no debe crear un .venv con un intérprete ausente"
+
+
+def test_setup_uses_python311_for_biohack():
+    """do_setup pasa python3.11 al venv de biohack (DP-17/C117): sus deps pinneadas
+    (pandas==2.1.4/numpy==1.25.2) solo tienen wheels cp311/cp312, no cp313/cp314 — su propio
+    setup.py fija 3.11. El resto usa python3 del sistema. Pin de esa elección por servicio."""
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    assert re.search(
+        r'\[ "\$id" = "biohack-be" \] && py="python3\.11"', text
+    ), "do_setup ya no fija python3.11 para biohack (DP-17); volvería a fallar en 3.14."
+
+
 def test_install_venv_without_manifest_fails_without_leaving_broken_venv(tmp_path):
     """install_venv en un workdir sin requirements.txt/pyproject/setup.py falla (no sabe
     instalar) y NO deja un .venv a medias — el mismo principio de rollback que aplica cuando

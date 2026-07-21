@@ -36,7 +36,7 @@
 | DP-14 | Dominios fantasma vs invisibles en el registry | **CERRADA** (C84) | Auditada: `testlab`=auto-mat-ion (contrato vivo); solo `devtools`/ollama-code era fantasma → desactivado. |
 | DP-15 | Hint del registry sugería `docker-full` | **CERRADA** (C85) | El hint deduce la topología (nativo → `run-ecosystem.sh start`). |
 | DP-16 | Venvs huérfanos por bumps de brew | **CERRADA** (C97) | El `doctor` de `run-ecosystem.sh` los caza temprano. |
-| DP-17 | biohack no compila en python 3.14 | **ABIERTA** (dueño) | `pandas`/numpy pinneados sin wheel cp314 (C102). Decisión: **pyenv 3.13** (parametrizar `setup`) o **bump requirements**. Único dominio sin ejercer live. |
+| DP-17 | biohack no compila en python 3.14 | **CERRADA** (C117) | Resuelta con **python 3.11** (no 3.13: su `setup.py` lo fija y avisa contra 3.13; deps pinneadas solo tienen wheel cp311/cp312). `run-ecosystem.sh setup` usa python3.11 para biohack; venv creado, deps instaladas, boot **verificado live** (`/api/v1/service-health` healthy). **Nota:** biohack exige **postgres al arrancar** (DATABASE_URL required, sin degradación) — infra, no deps; se le da con `docker-infra`. |
 | DP-18 | auto-mat-ion sin `node_modules` | **CERRADA** (C102) | `run-ecosystem.sh setup` → `npm install`. |
 | DP-19 | ideacursi `node_modules` incompleto | **CERRADA** (C102) | `setup` completó el árbol (`reflect-metadata`). |
 | DP-20 | ideacursi exige redis-stack en :6380 | **CERRADA** (C104) | El compose expone `:6380` (RediSearch para el vector). |
@@ -45,7 +45,7 @@
 
 ## Lo genuinamente PENDIENTE del dueño (resumen)
 
-- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-6 (en ideacursi), DP-17 (biohack python), C84-minor (borrar slot devtools).
+- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-6 (en ideacursi), C84-minor (borrar slot devtools). *(DP-17 cerrada C117 — biohack en python 3.11.)*
 - **Pasos humanos de ejecución (no decisión):** DP-1..DP-4 → panel IONOS (A-record + API key DDNS), port-forward TP-Link 80/443, `pmset`. Verificables con `scripts/funnel-preflight.sh` (C115).
 - **Decidida, no re-listar como pendiente:** DP-7 (documentar, no migrar).
 

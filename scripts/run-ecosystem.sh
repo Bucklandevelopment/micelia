@@ -278,21 +278,29 @@ install_node() {
   printf "  ✗ %-24s npm install FALLÓ (ver salida arriba)\n" "$label"; return 1
 }
 
-# install_venv LABEL WORKDIR: recrea el .venv (si falta o está huérfano) con el python del
-# sistema e instala deps auto-detectando el modo (requirements.txt / pyproject|setup.py / -e).
-# NO borra un venv sano. 0 (ok/ya-ok) / 1 (fallo). Idempotente.
+# install_venv LABEL WORKDIR [PYTHON_BIN]: recrea el .venv (si falta o está huérfano) con el
+# intérprete PYTHON_BIN (default `python3` del sistema) e instala deps auto-detectando el modo
+# (requirements.txt / pyproject|setup.py / -e). NO borra un venv sano. 0 (ok/ya-ok) / 1 (fallo).
+# Idempotente. El intérprete es parametrizable porque un dominio puede exigir una versión de
+# python distinta a la del sistema: biohack fija python3.11 en su setup.py ("avoid pandas
+# compatibility issues with 3.13") y sus deps pinneadas (pandas==2.1.4, numpy==1.25.2) solo
+# tienen wheels cp311/cp312, no cp313/cp314 (DP-17, C102/C117).
 install_venv() {
-  local label="$1" workdir="$2"
+  local label="$1" workdir="$2" py="${3:-python3}"
   if [ ! -d "$workdir" ]; then
     printf "  ✗ %-24s no existe %s (omitido)\n" "$label" "$workdir"; return 1
   fi
   if venv_python_ok "$workdir"; then
     printf "  • %-24s .venv ya sano (omitido)\n" "$label"; return 0
   fi
+  if ! command -v "$py" >/dev/null 2>&1; then
+    printf "  ✗ %-24s falta el intérprete '%s' (instálalo: pyenv/brew) — no se recrea el .venv\n" "$label" "$py"
+    return 1
+  fi
   # venv ausente o HUÉRFANO (intérprete muerto): recrear desde cero.
   [ -e "$workdir/.venv" ] && rm -rf "$workdir/.venv"
-  printf "  → %-24s creando .venv (%s) …\n" "$label" "$(python3 --version 2>&1)"
-  if ! python3 -m venv "$workdir/.venv"; then
+  printf "  → %-24s creando .venv (%s) …\n" "$label" "$("$py" --version 2>&1)"
+  if ! "$py" -m venv "$workdir/.venv"; then
     printf "  ✗ %-24s no se pudo crear el .venv\n" "$label"; return 1
   fi
   local pip="$workdir/.venv/bin/pip"
@@ -340,7 +348,13 @@ do_setup() {
   while IFS='|' read -r id label dir port marker cmd hint; do
     [ -z "$id" ] && continue
     [ "$marker" = ".venv" ] || continue
-    install_venv "$label" "$dir" || any_bad=1
+    # Intérprete por servicio: biohack EXIGE python3.11 (su setup.py lo fija; sus deps
+    # pinneadas no tienen wheels cp313/cp314 → falla en 3.14, DP-17). El resto usa el
+    # python3 del sistema. Si biohack cambia sus pines a versiones con wheel cp314, esto
+    # vuelve a python3 y el caso desaparece.
+    local py="python3"
+    [ "$id" = "biohack-be" ] && py="python3.11"
+    install_venv "$label" "$dir" "$py" || any_bad=1
   done <<< "$SERVICES"
   echo
   if [ "$any_bad" = "1" ]; then
