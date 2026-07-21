@@ -16,6 +16,28 @@
 
 ---
 
+## 2026-07-21 — Ciclo 106 (**Jessicache elige DP-21(a): renombro la infra dev de micelia a `micelia-*` para desacoplarla del stack de PRODUCCIÓN-LOCAL `deploy/`. Y por primera vez en 3 ciclos, la verificación live RINDE VERDE: `micelia-redis` arranca sin colisión, con :6380, sin tocar el stack de prod del usuario**): tarea aprobada (C105 escaló DP-21, C106 ejecuta la opción a).
+
+**El fix, targetado (auditado el blast radius antes — lección C89):** solo lo que `docker-infra` levanta colisiona con la rutina, así que renombro **eso**, no los 14 contenedores.
+- `container_name`: `postgres`/`redis`/`ollama` → **`micelia-postgres`/`micelia-redis`/`micelia-ollama`**; red `idm-network` → **`micelia-network`**.
+- **Los SERVICE keys (`postgres`/`redis`/`ollama`) NO cambian** → el DNS interno del compose (`@postgres:5432`, `redis://redis:6379`, `ollama:11434`) intacto; solo cambia el nombre del contenedor en podman. Los full-profile (`idm-core`, `idm-biohack`, …) **mantienen `idm-*`** (convención del rebrand D.4; solo corren bajo docker-full, fuera de la rutina).
+- **Ningún test pineaba estos nombres** (solo el service key `idm-core` del gateway, no tocado) → blast radius mínimo. Makefile: display de infra actualizado.
+
+- **Hecho:** 1 commit — `a000faa` `feat(deploy): DP-21(a) - infra dev con nombres micelia-* (desacople del stack prod deploy/)`. + 3 pins nuevos (`test_infra_redis_stack_codex.py`): infra usa `micelia-*` (no `idm-*`), service keys intactos (DNS sobrevive), red `micelia-network` (no `idm-network`).
+- **Verify:** **verde** — `make verify`: `1652 passed, 19 skipped` (+3), cobertura ~95%. `podman-compose config` schema **OK**.
+- **VERIFICADO EN VIVO (el desbloqueo real, y limpio):** `podman-compose up -d redis` → **`micelia-redis` se crea SIN colisión** (el `idm-redis` de deploy sigue **Exited, intacto**), con puertos `6379+6380+8001` → **:6380 expuesto** y **`FT._LIST @ :6380` OK** → el bind :6380 de C104 **por fin aplica** vía contenedor fresco de MICELIA. La cadena de DP-20 (education) queda **desbloqueada sin tocar el stack de producción del usuario** — justo lo que C105 no podía hacer.
+- **Higiene:** mi `micelia-redis` **eliminado**; el stack `deploy/` del usuario (`idm-*`) **intacto, todo Exited** (nunca tocado); **podman machine detenida**. `:6379/:6380/:8888` libres, cero residuales. `.env`/volúmenes/stack de prod intocables.
+
+**HITO — dev y prod ya no colisionan:** con DP-21(a) cerrada, `run-ecosystem.sh start` puede levantar su infra (`micelia-postgres/redis/ollama` en `micelia-network`) **conviviendo** con el stack `deploy/` sin chocar. Combinado con deps (C102) + redis-stack:6380 (C104), el arranque local completo de micelia (8/9, education incluido) ya no tiene bloqueos de infra/nombres — **solo biohack (DP-17)**.
+
+**DECISIÓN PENDIENTE (para Jessicache):** **DP-21 CERRADA** ✅ (opción a). Quedan **DP-17** (biohack py3.14: pyenv 3.13 o bump requirements) y las de INFRA del funnel (**DP-1..DP-4**). DP-16/18/19/20 cerradas. **Nota menor (no bloqueante):** los VOLÚMENES de micelia siguen `idm-*-data` — NO colisionan con los de deploy (`deploy_*`), así que se dejan; si algún día molesta la inconsistencia con los container `micelia-*`, es cosmético.
+
+**Mañana (Ciclo 107):** **(a)** ahora sí, **cerrar el bucle de arranque**: correr `run-ecosystem.sh start` de verdad (infra `micelia-*` no colisiona ya con deploy) y verificar education arrancando **dentro del flujo** — la prueba end-to-end vía el comando que C105 no pudo dar. Ojo RAM M1: docker-infra levanta ollama; parar todo al terminar. **(b)** El 4º mecanismo: auto-mat-ion (DP-18) registra por **Redis pub/sub**, no REST — pinear ese camino cerraría el último mecanismo SDK↔micelia. **(c)** biohack si Jessicache mueve DP-17. Recordatorio honesto C66–C106: **auditar el blast radius antes de renombrar** (14 container_names, pero solo 3 colisionaban → rename targetado, no masivo); **el container_name ≠ el service key** (renombrar el 1º sin tocar el 2º preserva el DNS — la clave para un rename seguro); **respetar decisiones previas salvo motivo nuevo** (rebrand D.4 dice mantener idm-*; DP-21 es motivo nuevo solo para la infra); **verificar el desacople EN VIVO sin tocar el stack de prod** (micelia-redis arriba, idm-redis Exited). Local-first M1: jamás `docker-full`; parar/eliminar todo lo que se arranque; stack de prod del usuario intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 105 (**intento correr `run-ecosystem.sh start` de verdad y lo BLOQUEA un hallazgo de arquitectura que no había visto: la infra dev de micelia y el stack de PRODUCCIÓN-LOCAL del usuario (`deploy/`, el que sirve micelia.idmmortality.com) COLISIONAN en los container_name `idm-redis`/`idm-postgres`. No tiro el stack de producción del usuario para una verificación de dev**): tarea (a) del plan de C104 (cerrar el bucle de arranque vía el comando). Ciclo de verificación C83-style: sin código, con hallazgo duro + escalado.
 
 **Lo que pasó, ejerciendo:** para que el bind `:6380` de C104 (en el compose de MICELIA) tuviera efecto, `docker-infra` tendría que **recrear** `idm-redis`. Al intentar `make docker-down` (paso estándar para aplicar cambios de compose): **`Error: container ... has dependent containers ... idm-network is being used`**. Auditoría de por qué:
