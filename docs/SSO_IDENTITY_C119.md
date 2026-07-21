@@ -39,6 +39,11 @@ biohack con `SECRET_KEY` = el de Micelia + postgres/redis efímeros: token de Mi
    compartido. Idealmente exponerlo en LAN para el móvil (paso aparte).
 4. **Probar UX:** login en Micelia → `/servicios` → "Salud" → biohack abre ya logueado.
 
-## Replicar a ideacursi (educación) — siguiente iterado
-Más trabajo: ideacursi es OAuth-only (identidad = git username), así que hay que puentear
-email↔usuario (auto-provisión por email) además de compartir el secreto. Mismo patrón que biohack.
+## ideacursi (educación) — FUERA de SSO (decisión del dueño, 2026-07-21)
+ideacursi **NO** entra en el SSO: mantiene su sistema de login **OAuth (GitHub/GitLab)** actual.
+Quien quiera acceder a educación se autentica en ideacursi como hasta ahora. Razón: ideacursi es
+OAuth-only (identidad = usuario de git, no email), así que puentearlo al SSO por email era trabajo
+desproporcionado para el valor — el dueño prefiere dejarlo con su flujo propio.
+
+Alcance real del SSO, por tanto: **dominios con login propio de email/password** (hoy: biohack).
+Si en el futuro otro dominio añade login por email, se replica el patrón de biohack (Fase 2).
