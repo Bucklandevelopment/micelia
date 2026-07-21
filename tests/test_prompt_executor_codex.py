@@ -180,6 +180,89 @@ async def test_execute_prompt_event_errors_swallowed(store, orch):
 
 
 # --------------------------------------------------------------------------
+# _execute_prompt — huecos que el mutation-testing destapó (C109). Cada test MATA
+# una mutación que sobrevivía a la suite previa (100% líneas ≠ comportamiento pineado).
+# --------------------------------------------------------------------------
+
+
+async def test_execute_prompt_reviews_plan_category(store, orch, monkeypatch):
+    """El review corre para `plan`, no solo `work`. Mata la mutación que reduce las
+    categorías revisadas a `("work",)` (que sobrevivía: ningún test revisaba un `plan`)."""
+    monkeypatch.setattr(pe.settings, "prompt_review_enabled", True, raising=False)
+    orch.chat.side_effect = [_ok(content="answer"), {"success": True, "content": "0.8"}]
+    ex = PromptExecutor(store, frangels_orchestrator=orch)
+
+    await ex._execute_prompt({"prompt_id": "p1", "category": "plan", "content": "hi"})
+
+    assert store.update_prompt.await_args.kwargs["review_score"] == 0.8
+    assert orch.chat.await_count == 2  # execute + review también para `plan`
+
+
+async def test_execute_prompt_review_uses_free_tier(store, orch, monkeypatch):
+    """La 2ª llamada (el review) usa `prefer_paid=False` — free tier. Mata la mutación que
+    lo pone en True (sobrevivía: ningún test miraba el prefer_paid del review)."""
+    monkeypatch.setattr(pe.settings, "prompt_review_enabled", True, raising=False)
+    orch.chat.side_effect = [_ok(content="answer"), {"success": True, "content": "0.9"}]
+    ex = PromptExecutor(store, frangels_orchestrator=orch)
+
+    await ex._execute_prompt({"prompt_id": "p1", "category": "work", "content": "hi"})
+
+    review_call = orch.chat.await_args_list[1]  # la segunda llamada es el review
+    assert review_call.kwargs["prefer_paid"] is False, (
+        "el review debe usar free tier (prefer_paid=False), no gastar paid"
+    )
+
+
+async def test_execute_prompt_completed_increments_iterations(store, orch):
+    """Al completar, `iterations` es el previo + 1. Mata la mutación del `+ 1` (sobrevivía:
+    ningún test asertaba el valor de iterations)."""
+    orch.chat.return_value = _ok()
+    ex = PromptExecutor(store, frangels_orchestrator=orch)
+
+    await ex._execute_prompt(
+        {"prompt_id": "p1", "category": "note", "content": "hi", "iterations": 2}
+    )
+
+    final = store.update_prompt.await_args
+    assert final.kwargs["status"] == "completed"
+    assert final.kwargs["iterations"] == 3  # 2 previas + 1
+
+
+async def test_execute_prompt_publishes_to_idm_prompts_channel(store, orch):
+    """El evento de completado se publica en el canal `idm.prompts` con el shape esperado.
+    Mata la mutación del nombre del canal (sobrevivía: el test solo contaba la llamada)."""
+    orch.chat.return_value = _ok(content="answer")
+    bus = AsyncMock()
+    ex = PromptExecutor(store, frangels_orchestrator=orch, event_bus=bus)
+
+    await ex._execute_prompt({"prompt_id": "p1", "category": "note", "content": "hi"})
+
+    channel, payload = bus.publish.await_args.args
+    assert channel == "idm.prompts", f"canal inesperado: {channel}"
+    assert payload["type"] == "prompt.completed"
+    assert payload["prompt_id"] == "p1"
+
+
+async def test_execute_prompt_model_failure_reports_the_model_error(store, orch):
+    """Un resultado fallido toma la rama de fallo INTENCIONADA (early-return con el error del
+    modelo), no la del `except` por un KeyError accidental. Mata la mutación que desactiva el
+    guard `if not result["success"]` (sobrevivía porque el `except` producía el mismo
+    status='failed' — pero con el error equivocado). Se asertan las señales que SÓLO da la
+    rama intencionada: el error del modelo y que NO se intentó review ni completado."""
+    orch.chat.return_value = {"success": False, "error": "no quota"}
+    ex = PromptExecutor(store, frangels_orchestrator=orch)
+
+    await ex._execute_prompt({"prompt_id": "p1", "category": "work", "content": "hi"})
+
+    final = store.update_prompt.await_args
+    assert final.kwargs["status"] == "failed"
+    assert final.kwargs["error"] == "no quota", (
+        "debe reportar el error del MODELO (rama intencionada), no un KeyError del except"
+    )
+    assert orch.chat.await_count == 1, "no debe intentar review tras un fallo de modelo"
+
+
+# --------------------------------------------------------------------------
 # lifecycle + loop
 # --------------------------------------------------------------------------
 
