@@ -25,7 +25,7 @@
 | DP-3 | Secretos del funnel | **DECIDIDA** | `deploy/.env` (chmod 600, fuera de git). |
 | DP-4 | Postgres de producción | **DECIDIDA** | La del compose local (`idm-postgres`). |
 | DP-5 | Rebrand env-var URL orquestador | **ABIERTA** (parte decisión) / CERRADA (bug, C82) | El compose inyecta **ambos** `VITAL_*`+`IDM_*` (alias, verificado C116). Decisión abierta: dejar-ambos (hoy) / retirar `IDM_*` / migrar a `MICELIA_URL`. Hermano gemelo de DP-7. |
-| DP-6 | `user_id` del pipeline research-to-course | **ABIERTA** (en ideacursi) | Pineado Micelia-side (C81, 5 pins). Fallo SILENCIOSO (200 con curso que no llega a la BD de ideacursi). Resolución en ideacursi (seed / auto-create / propagar identidad). |
+| DP-6 | Propagación de identidad al dominio (pipeline) | **RESUELTA (patrón, C119)** | El SSO (Micelia IdP + auto-provisión por email en el dominio) resuelve el hueco: biohack materializa al usuario del funnel por su email. Piloto biohack cerrado; replicar a ideacursi. Ver `SSO_IDENTITY_C119.md`. |
 | DP-7 | Namespace de canales Redis (`idm.*`/`vital.*`/`micelia.*`) | **DECIDIDA** (C80: documentar, NO migrar) | ⚠️ **corrección de drift C116**: ciclos recientes (incl. C108/C114/C115) la re-listaban como "pendiente"; NO lo es. El dueño decidió no migrar. Guardada (C108, `test_automation_ingest_path`). **Reabre SOLO** si se quiere cablear consumo pub/sub cruzado → migrar los 6 repos coordinadamente a `micelia.*`. |
 | DP-8 | `/health` de canela sin `version` | **CERRADA** (C79) | Micelia maneja `version:null`; pineado cross-repo. Acción futura opcional (canela añade version) — no bloquea. |
 | DP-9 | Campo `total` global del panel | **CERRADA** (descartada, C71) | Era fabricación; descartada. No re-listar. |
