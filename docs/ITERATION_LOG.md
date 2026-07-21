@@ -16,6 +16,25 @@
 
 ---
 
+## 2026-07-21 — Ciclo 116 (**pase de CONSOLIDACIÓN: audito las DP del log contra el código y encuentro DRIFT — DP-7 la venía re-listando como "pendiente" (incl. YO en C108/C114/C115) cuando C80 la CERRÓ hace tiempo. Creo un ledger autoritativo para que no vuelva a pasar**): tarea (c) del plan de C115 (el vector honesto cuando no hay decisión nueva del dueño). Patrón C81-84: la severidad/estado heredado del log hay que auditarlo, no confiarlo.
+
+**El método:** extraje el registro de DPs (DP-1..DP-21 + C84-minor), busqué el estado autoritativo de cada una (la afirmación más reciente Y su origen) y lo **verifiqué contra el código** (`make verify` verde = los contratos pineados de las cerradas se sostienen; + checks puntuales del compose/config).
+
+- **DRIFT ENCONTRADO Y CORREGIDO:** **DP-7** (namespace de canales `idm.*`/`vital.*`/`micelia.*`) la re-listaban como "DECISIÓN PENDIENTE / latente" varios ciclos recientes — **incluidos los míos (C108, C114, C115)**. Pero **C80 la CERRÓ** explícitamente como **decisión REGISTRADA del dueño: documentar, NO migrar**, con condición de reapertura clara (el día que se cablee consumo pub/sub cruzado → migrar los 6 repos a `micelia.*`). No es pendiente; la decisión está tomada (no migrar). Yo mismo la arrastré mal 3 veces. Es exactamente el drift que este pase busca.
+- **Otros ajustes:** DP-9 (`total` global) estaba **descartada** (C71) — no re-listar. DP-8 **cerrada** (C79). Verificado en código: DP-5 el compose **aún inyecta `VITAL_*`+`IDM_*`** (20 refs — el estado "dejar ambos", rebrand abierto); `ollama_code_enabled=False` (C84-minor sigue **desactivado, no borrado**).
+- **Hecho:** 1 commit — `622530b` `docs(dp): registro autoritativo de DPs (DP_LEDGER.md)`. **`docs/DP_LEDGER.md`** es ahora la **FUENTE DE VERDAD** del estado de cada DP (tabla verificada C116): CERRADA / DECIDIDA / ABIERTA, con nota y guard de cada una. Los ciclos futuros lo **ACTUALIZAN** en vez de re-derivar la lista de memoria (que fue lo que causó el drift).
+- **Verify:** **verde** — `make verify`: `1717 passed, 22 skipped` (sin cambios de código; los pins de las DP cerradas confirman que no han regresado).
+- **Estado consolidado — lo GENUINAMENTE pendiente del dueño:** **decisiones** → DP-5 (rebrand env-vars), DP-6 (en ideacursi), DP-17 (biohack python 3.13/bump), C84-minor (borrar slot devtools); **pasos humanos** (no decisión) → DP-1..DP-4 (panel funnel IONOS/TP-Link/pmset). **Todo lo demás CERRADA o DECIDIDA.**
+- **Higiene:** doc-only. No toqué código, infra, `.env` ni el runbook (WIP del usuario). Sin residuales.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva; ver **`docs/DP_LEDGER.md`** (fuente de verdad). Genuinamente abiertas: **DP-17, DP-6, DP-5(rebrand), C84-minor** (decisiones) + **DP-1..DP-4** (pasos de panel). DP-7 **cerrada** (decidida: no migrar).
+
+**Mañana (Ciclo 117):** **honestidad de rumbo (2º día seguido):** el trabajo autonomizable de alto valor está agotado y la consolidación de hoy lo confirma — casi todo está cerrado y lo abierto es del dueño. Recomendación: **esperar input de Jessicache** (una decisión de DP-17/DP-5/DP-6/C84-minor, o los pasos de panel del funnel) antes de otro ciclo. Si se pide uno sin decisión nueva, las opciones honestas son: **(a)** ejecutar una DP EN CUANTO el dueño decida (p.ej. DP-17 con python 3.13 → parametrizar `setup`); **(b)** otro pase de consolidación menor (p.ej. auditar que los `docs/*` no-legales del propio Micelia no tengan drift factual vs el código, como hoy con las DPs); **(c)** decir que no hay vector de valor y no fabricar trabajo. Recordatorio honesto C66–C116: **auditar el estado heredado, aunque el error sea MÍO** (arrastré DP-7 mal 3 ciclos — el ledger lo corrige y lo previene); **una fuente única de verdad > re-derivar de memoria** (el drift nace de re-listar cada ciclo); **verificar las cerradas contra el código** (no basta el marker del log); **reconocer el agotamiento del vector y decirlo**, dos días seguidos. Local-first M1: read-only sobre infra/secretos/WIP.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 115 (**scaffolding del deploy del funnel: un `funnel-preflight` que verifica la cadena DNS→puerto→TLS→gateway de un tirón. Preparar, NO decidir — DP-1..DP-4 ya estaban decididas; lo que faltaba era tooling para los pasos ⏳HUMANO. Y el smoke live acierta el estado pre-migración**): tarea (b) del plan de C114.
 
 **Auditoría antes de empezar (para no decidir de más ni pisar WIP):** DP-1..DP-4 están **[x] DECIDIDAS** por Jessicache (2026-07-17): hosting local, host único `micelia.idmmortality.com`, secretos en `deploy/.env`, postgres del compose. Lo que queda son **pasos de PANEL humanos** (A-record IONOS, port-forward TP-Link 80/443, pmset) + su **verificación manual** (dig/curl/openssl), que el runbook lista suelta. No hay tooling de verificación (`deploy/scripts` solo tiene ddns/pg-backup/stack-up). El runbook es **WIP del usuario → no se toca**.
