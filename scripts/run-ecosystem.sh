@@ -36,6 +36,18 @@ kill_port() {
   [ -n "$pids" ] && kill $pids 2>/dev/null || true
 }
 
+# kill_tree PID: mata el proceso Y TODOS sus descendientes (post-order: hijos antes que el
+# padre, para que ninguno se reparente/reviva). Necesario porque los dominios MULTI-PROCESO
+# arrancan con UN wrapper cuyo PID guardamos, pero sus hijos viven en OTROS puertos: canela
+# `make run-all` = uvicorn(:3690)+streamlit(:8501); ideacursi `npm run dev` = concurrently →
+# BE(:5050)+FE(:6060). `stop` mataba solo el PID guardado + el ÚNICO puerto registrado → dejaba
+# huérfanos comiendo RAM (bug observado en C107). `pgrep -P` recorre el árbol; portable macOS/Linux.
+kill_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
+  kill "$pid" 2>/dev/null || true
+}
+
 wait_port() {  # wait_port PORT SECONDS
   local p="$1" secs="$2"
   for _ in $(seq 1 "$secs"); do
@@ -92,7 +104,7 @@ start_svc() {
 stop_svc() {  # stop_svc ID PORT
   local id="$1" port="$2" pidf="$RUN_DIR/$1.pid"
   if [ -f "$pidf" ]; then
-    kill "$(cat "$pidf")" 2>/dev/null || true
+    kill_tree "$(cat "$pidf")"   # C107: árbol completo, no solo el wrapper (dominios BE+FE)
     rm -f "$pidf"
   fi
   kill_port "$port"

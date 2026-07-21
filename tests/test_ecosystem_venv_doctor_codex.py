@@ -233,6 +233,54 @@ def test_setup_subcommand_is_wired_in_dispatch():
 
 
 # =============================================================================
+# kill_tree (C107) — `stop` debe matar el árbol, no solo el wrapper (dominios BE+FE)
+# =============================================================================
+
+
+def test_kill_tree_kills_whole_process_tree():
+    """kill_tree mata la raíz Y sus descendientes. Regresión del bug de C107: los dominios
+    multi-proceso (canela `make run-all`, ideacursi `npm run dev`) arrancan un wrapper cuyos
+    HIJOS viven en otros puertos; `stop` mataba solo el wrapper → huérfanos comiendo RAM. Se
+    levanta un árbol de `sleep`s con una duración única (para no tocar otros procesos), se
+    kill_tree la raíz y se comprueba que NINGÚN sleep sobrevive (el `kill` plano del wrapper
+    los habría dejado vivos)."""
+    uniq = "29471837"  # duración única → aísla los procesos de este test
+    # Árbol de 2 niveles: root → bash intermedio → 2 sleeps. Los sleeps son NIETOS del root,
+    # así se prueba que kill_tree RECURRE en profundidad (el caso real: npm→node→nodemon→node).
+    snippet = f"""
+pkill -f 'sleep {uniq}' 2>/dev/null || true  # clean slate (aísla de corridas previas)
+bash -c "bash -c 'sleep {uniq} & sleep {uniq} & wait' & wait" &
+root=$!
+sleep 1
+echo "before=$(pgrep -f 'sleep {uniq}' | wc -l | tr -d ' ')"
+kill_tree $root
+sleep 1
+echo "after=$(pgrep -f 'sleep {uniq}' | wc -l | tr -d ' ')"
+pkill -f 'sleep {uniq}' 2>/dev/null || true
+"""
+    r = _bash(snippet)
+    out = r.stdout + r.stderr
+    before = re.search(r"before=(\d+)", out)
+    after = re.search(r"after=(\d+)", out)
+    assert before and int(before.group(1)) >= 2, f"el árbol de prueba no se levantó: {out}"
+    assert after and int(after.group(1)) == 0, (
+        f"kill_tree dejó descendientes vivos (nietos incluidos) → `stop` seguiría dejando "
+        f"huérfanos (C107): {out}"
+    )
+
+
+def test_stop_svc_uses_kill_tree():
+    """`stop_svc` mata el árbol (kill_tree), no solo el PID guardado — anti-regresión del fix
+    de C107 (si vuelve a `kill "$(cat ...)"` a secas, los dominios BE+FE dejan huérfanos)."""
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    m = re.search(r"stop_svc\(\)\s*\{(.*?)\n\}", text, re.DOTALL)
+    assert m, "no se encontró stop_svc"
+    assert "kill_tree" in m.group(1), (
+        "stop_svc dejó de usar kill_tree; volvería a dejar huérfanos los dominios multi-proceso."
+    )
+
+
+# =============================================================================
 # preflight — el doctor integrado en `start` (C99): avisa, no aborta
 # =============================================================================
 
