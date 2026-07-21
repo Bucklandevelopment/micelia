@@ -186,6 +186,21 @@ class TestGetClient:
         assert c2 is not c1
         await c2.aclose()
 
+    async def test_aclose_closes_the_cached_client(self):
+        """orch.aclose() cierra el cliente cacheado (líneas 66-67, sin cubrir). Mata la
+        mutación que desactiva el guard `if _client and not is_closed` → el cliente quedaría
+        abierto en cada shutdown (fuga de transport/pool atada a un loop cerrado, el bug de C70)."""
+        orch = _make_orch()
+        client = await orch._get_client()
+        assert not client.is_closed
+        await orch.aclose()
+        assert client.is_closed
+
+    async def test_aclose_is_noop_when_no_client(self):
+        """aclose() no falla si nunca se creó cliente (rama no-op)."""
+        orch = _make_orch()
+        await orch.aclose()  # no debe lanzar
+
 
 # ---------------------------------------------------------------------------
 # get_configured_providers
@@ -383,6 +398,18 @@ class TestSelectAngel:
             sel = orch.select_angel()
         assert len(sel.fallbacks) == 3  # eligible[1:4]
 
+    async def test_latency_tiebreaker_puts_unknown_latency_last(self):
+        """Empate en tier+salud: a menor latencia mejor, y una latencia DESCONOCIDA (None) va
+        al FINAL vía `latency_ms or 9999`. Mata la mutación `or 0` (que pondría la desconocida
+        primera): con dos angels standard+available, el de latencia conocida (100) gana al de
+        latencia None."""
+        orch = _make_orch()
+        fast = _angel("fast", tier=AngelTier.STANDARD, is_available=True, latency=100.0)
+        unknown = _angel("unknown", tier=AngelTier.STANDARD, is_available=True, latency=None)
+        with _patch_registry(unknown, fast):  # orden de inserción invertido a propósito
+            sel = orch.select_angel()
+        assert sel.angel.id == "fast", "la latencia desconocida (None→9999) debe ir última"
+
 
 # ---------------------------------------------------------------------------
 # chat
@@ -570,6 +597,19 @@ class TestPaidProviders:
             settings.anthropic_api_key = None
             res = await orch._try_paid_provider([{"role": "user", "content": "hi"}], None)
         assert res is None
+
+    async def test_try_paid_respects_quota_gate(self):
+        """Con keys presentes pero CUOTA AGOTADA (can_use=False), _try_paid NO llama al provider
+        de pago y devuelve None — respeta el gate de cuota. Mata la mutación que quita
+        `and self.quota_manager.can_use(...)` (que intentaría el provider igual, gastando)."""
+        orch = _make_orch(can_use=False)  # cuota agotada para ambos
+        orch._chat_paid_provider = AsyncMock()  # espía: NO debe llamarse
+        with patch("app.core.config.settings") as settings:
+            settings.openai_api_key = "sk"
+            settings.anthropic_api_key = "sk-ant"
+            res = await orch._try_paid_provider([{"role": "user", "content": "hi"}], None)
+        assert res is None
+        orch._chat_paid_provider.assert_not_awaited()
 
     async def test_chat_paid_no_key(self):
         orch = _make_orch(api_key=None)
