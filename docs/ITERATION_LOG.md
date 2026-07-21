@@ -16,6 +16,26 @@
 
 ---
 
+## 2026-07-21 — Ciclo 104 (**Jessicache aprueba DP-20; cableo redis-stack en :6380. El hallazgo agradable: la imagen del compose YA era redis-stack — solo faltaba EXPONER :6380. Un bind aditivo de 1 línea, no un cambio de imagen**): tarea aprobada explícitamente (C103 escaló DP-20, C104 lo concede).
+
+**Auditoría antes de tocar (lección C84/C89 — no asumir):** esperaba cambiar la imagen de redis a redis-stack. Al leer el compose: **`image: redis/redis-stack:latest` ya estaba** (trae RediSearch). El problema real era más pequeño: el servicio solo exponía `:6379`, y el `RedisVectorService` de ideacursi arranca haciendo `FT.CREATE` contra su default `redis://localhost:6380`. En **docker-full** el contenedor recibe `REDIS_URL=redis:6379` inyectado (por eso ese caso ya funcionaba), pero un ideacursi arrancado **NATIVO** (`run-ecosystem.sh start` + `docker-infra`, sin REDIS_URL) cae a su default :6380, que la infra no bindeaba → crash en `FT.CREATE` (el fatal de C103).
+
+- **Hecho:** 1 commit — `07066a9` `feat(deploy): exponer redis-stack en :6380 para el vector de ideacursi (DP-20, aprobado)`. **Fix mínimo y aditivo:** un bind `"6380:6379"` en el servicio `redis` → host :6380 mapea al MISMO contenedor redis-stack (:6379 interno). Comentario cross-referenciado al fichero de ideacursi que lo exige. `tests/test_infra_redis_stack_codex.py` (3 pins): (1) el redis del compose usa imagen redis-stack, (2) expone :6380, (3) cross-repo — ideacursi default-ea su vector a :6380 y usa `this.redis.ft.create` (RediSearch), el porqué del bind (SKIP si ausente).
+- **Verify:** **verde** — `make verify`: `1649 passed, 19 skipped` (+3), cobertura ~95%.
+- **Verificado:** `podman-compose config` schema **OK**; **mutation** (quitar el bind :6380) rompe el pin; y **C103 ya probó en vivo** la cadena completa (ideacursi `Nest successfully started`, slot `education` `healthy=True, version=0.1.0` contra redis-stack en :6380). El caso containerizado (docker-full) **intacto** (usa REDIS_URL inyectado; el host-bind es solo para el arranque local nativo).
+- **Lo que NO forcé (y por qué):** recrear el contenedor `idm-redis` desde el compose corregido para re-demostrar el bind en vivo — **tiene contenedores dependientes en el stack del usuario** (idm-core, etc.), y tirar su stack para re-demostrar un bind DECLARATIVO ya validado por schema + pin + la prueba live de C103 **no se justifica**. Evidencia suficiente sin churn del stack ajeno.
+- **Higiene:** arranqué el `idm-redis` del usuario (estaba Exited) al probar `podman-compose up`; **devuelto a Exited**; **podman machine detenida** (estaba parada). Stack `idm-*` del usuario intacto, volumen `redis_data` **no tocado**. `:6379/:6380/:5050/:8888` libres, cero residuales. Cambio de infra **autorizado**; `.env`/secretos/volúmenes intactos.
+
+**HITO — arranque local completo desbloqueado (salvo biohack):** con DP-18/DP-19 (deps, C102), DP-20 (redis-stack :6380, C104) cerradas, `run-ecosystem.sh start` puede levantar **8 de 9 servicios** con sus deps e infra correctas (education incluido). Solo **biohack (DP-17)** queda, por el python 3.14 vs pandas — decisión del dueño.
+
+**DECISIÓN PENDIENTE (para Jessicache):** **DP-20 CERRADA** ✅. Queda **DP-17** (biohack: python 3.13 vía pyenv, o bump de requirements a cp314 — tu elección; el `setup` de C102 usa `python3` del sistema, habría que parametrizar el intérprete para la opción pyenv) y las de INFRA del funnel (**DP-1..DP-4**). DP-16/18/19 cerradas.
+
+**Mañana (Ciclo 105):** **(a)** cerrar el bucle de arranque: correr `run-ecosystem.sh start` de verdad (docker-infra con el redis-stack :6380 ya cableado) y verificar que **education arranca solo** dentro del flujo `start` — la prueba de que la cadena deps+infra quedó completa end-to-end vía el comando, no a mano. **(b)** El 4º mecanismo: **auto-mat-ion** (DP-18 resuelto) registra/latea por **Redis pub/sub**, no REST — verificar ese camino (distinto de C86/88 que fueron REST) cerraría el último mecanismo del contrato SDK↔micelia sin pin live. **(c)** biohack si Jessicache mueve DP-17. Recordatorio honesto C66–C104: **auditar antes de asumir el tamaño del cambio** (esperaba swap de imagen; era 1 bind — la imagen ya era redis-stack); **el default nativo ≠ el env containerizado** (:6380 default vs REDIS_URL inyectado — el mismo tipo de asimetría local/compose que DP-5); **no tirar el stack del usuario para re-demostrar lo ya validado**; **fix mínimo y aditivo** (un bind, docker-full intacto); **cross-referenciar el pin al porqué** (el fichero de ideacursi que exige :6380). Local-first M1: jamás `docker-full`; parar/restaurar todo lo que se arranque; `.env`/volúmenes intactos.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 103 (**el 3er slot del registry, `education`, VERIFICADO EN VIVO por fin. Con las deps de ideacursi ya OK (C102), levanto la infra que le faltaba y lo arranco de verdad contra el gateway: `education healthy=True, version=0.1.0`. Cerrar el boot destapó que DP-20 no era "redis" a secas sino redis-STACK**): tarea (a) del plan de C102. Ciclo de verificación (C83-style): sin código, con evidencia de ejecución.
 
 **La cadena de arranque de ideacursi, destapada capa a capa (ejerciendo, no leyendo):** con `reflect-metadata` ya instalado (C102), el boot avanzó y fue chocando con cada dependencia real de arranque:
