@@ -200,6 +200,15 @@ def test_install_node_missing_workdir_fails(tmp_path):
     assert "no existe" in out and "rc=1" in out, out
 
 
+def test_install_venv_without_manifest_fails_without_leaving_broken_venv(tmp_path):
+    """install_venv en un workdir sin requirements.txt/pyproject/setup.py falla (no sabe
+    instalar) y NO deja un .venv a medias — el mismo principio de rollback que aplica cuando
+    pip falla (verificado en vivo con biohack en 3.14). Hermético: no hay deps que instalar."""
+    r = _bash(f"install_venv 'Svc' '{tmp_path}'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "rc=1" in out and "no sé instalar" in out, out
+
+
 def test_setup_venv_side_is_idempotent_when_healthy(tmp_path):
     """do_setup sobre venvs sanos no recrea nada y sale 0 (idempotente). Se inyectan SOLO
     servicios venv (los node harían `npm install` REAL, fuera del alcance hermético)."""

@@ -301,7 +301,11 @@ install_venv() {
       "$("$workdir/.venv/bin/python" -c 'import platform;print(platform.python_version())' 2>/dev/null)"
     return 0
   fi
-  printf "  ✗ %-24s pip install FALLÓ (deps sin wheel para este python? ver arriba)\n" "$label"
+  # ROLLBACK: un pip que falla deja un .venv A MEDIAS cuyo intérprete SÍ arranca → el doctor
+  # lo reportaría OK (falso, como el node_modules incompleto de DP-19). Borrarlo restaura el
+  # estado honesto (doctor: AUSENTE) en vez de un venv engañoso. Atómico: todo o nada.
+  rm -rf "$workdir/.venv"
+  printf "  ✗ %-24s pip install FALLÓ (deps sin wheel para este python? ver arriba). .venv revertido.\n" "$label"
   return 1
 }
 
