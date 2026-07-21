@@ -16,6 +16,29 @@
 
 ---
 
+## 2026-07-21 — Ciclo 111 (**"compute_router coverage" — pero NO existe un `compute_router.py`: es un flag y el ruteo vive en `app/api/v1/ai.py`, que estaba al 44% (no 99% como los 2 anteriores). No un caza-mutaciones fino, sino cobertura de verdad de un módulo núcleo medio-desnudo**): tarea (a) del plan de C110.
+
+**Auditoría de la premisa (C84/C89) antes de empezar:** busqué `compute_router.py` → **no existe**. `compute_router` es (1) un flag `compute_router_enabled` y (2) el **ruteo de chat en `ai.py`** (CodKing vs Ollama). Y `ai.py` **no tenía test dedicado** (`test_api_ai_codex.py` no existía) → **44% de líneas** (124 stmts, 69 sin cubrir): la decisión de ruteo, ambos helpers de chat y los 4 endpoints (embeddings, threat-detection, health-analysis, models) **enteros sin cubrir**. Distinto de C109/C110 (que ya estaban al 99-100% y era caza-mutaciones): aquí es cobertura real de código desnudo.
+
+- **Hecho:** 1 commit — `85faa4b` `test(ai): cubrir el compute-router (ai.py 44%→100%)`. **`tests/test_api_ai_codex.py` (17 tests)** con el `http_client` mockeado (único borde externo), montando el router con `TEST_API_KEY`:
+  - **/status**: ollama disponible (200) / fallo tragado; cores de codking.
+  - **/chat ruteo** (el "compute router"): `core + codking_enabled` → CodKing (`/classify`); sin core o codking off → Ollama (`/api/chat`) — la condición AND verificada por AMBAS ramas.
+  - **mapeos de error**: ollama non-200 → 502, timeout → 504; codking non-200 → 502.
+  - **/embeddings** (dims), **/threat-detection** (passthrough), **/health-analysis** (con pregunta → bio-savant / sin → ml-predict), **/models** (ollama+codking+onnx, fallo de ollama tragado).
+- **Verify:** **verde** — `make verify`: `1683 passed, 19 skipped` (+17), cobertura de `ai.py` **44%→100%**.
+- **Disciplina (spot-check de mutación, harness con baseline verificado):** ruteo `AND→OR`, timeout `504→502`, rama de health-analysis, gate de cores → **todas KILLED**. **1 mutación EQUIVALENTE sobrevive (honesto):** el `raise HTTPException(502)` interno del non-200 lo **re-envuelve el `except Exception` externo** → su status queda enmascarado; los dos códigos son behaviorally idénticos (ambos → 502). El comportamiento non-200→502 SÍ está asertado; no es hueco de test sino un smell menor del `except` demasiado ancho (no lo toco — endpoint que funciona, fuera de alcance de cobertura).
+- **Higiene:** test-only, cero servicios/infra, sin residuales.
+
+**Balance de las 3 de cobertura (C109-111):** prompt_executor (100% líneas, 5 supervivientes), frangels/orchestrator (99%, 3 supervivientes), ai.py (44%→100%, cobertura nueva). **Dos patrones distintos:** módulos "cubiertos de mentira" (línea alta, comportamiento flojo → mutation-testing) y módulos "desnudos" (línea baja → cobertura directa). El núcleo de servicios/endpoints queda sólido y medido de verdad.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-17** (biohack py3.14), **DP-7** (canales, latente), **DP-1..DP-4** (funnel).
+
+**Mañana (Ciclo 112):** con 3 módulos núcleo sólidos, considerar **pivotar**: **(a)** biohack si Jessicache mueve DP-17 (el único dominio sin ejercer). **(b)** un barrido rápido de cobertura del resto de `app/api/v1/*` y `app/services/*` para encontrar otros módulos <70% (como ai.py hoy) — el mapa de cobertura dirá cuáles; priorizar los de lógica sensible. **(c)** si el núcleo está uniformemente sólido, preparar (no decidir) DP-1..DP-4 del funnel o un e2e cross-proyecto. Recordatorio honesto C66–C111: **auditar el nombre antes de "cubrirlo"** (no había `compute_router.py`; era ai.py); **distinguir "cubierto de mentira" de "desnudo"** — herramientas distintas (mutation vs cobertura directa); **una mutación equivalente que sobrevive no es un hueco** (reconocerla, no forzar un test artificial); **un `except` demasiado ancho enmascara el status de los raises internos** (smell observado, no forzado a arreglar en un ciclo de cobertura). Local-first M1: jamás `docker-full`; parar todo; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 110 (**mismo mutation-testing dirigido de C109, ahora sobre `frangels/orchestrator` — el motor de modelos. Estaba MEJOR pineado que prompt_executor (mata casi todo), pero aún escondía 3 supervivientes reales + la última línea sin cubrir. Y de paso el harness me enseñó a no fiarme de mi propio grep**): tarea (a) del plan de C109.
 
 **Método + un tropiezo honesto:** el módulo tenía **100 tests, 99% líneas** (2 sin cubrir: 66-67). Apliqué mutaciones y — igual que C109 — verifiqué que cada una **se aplicara**. **Pero mi `run()` tenía un bug**: `grep -qE "^[0-9]+ passed"` no casaba la línea de resumen de pytest, así que **el baseline SIN mutar salía "killed"** → toda la primera tanda era ruido. Lo detecté justo por eso (baseline debe SOBREVIVIR). Rehíce el harness (`grep "failed"` → killed; si no, survived), confirmé baseline verde, y repetí. **Lección: verifica el baseline del harness antes de creerte los resultados.**
