@@ -125,3 +125,80 @@ def test_gateway_openapi_wired_after_real_boot(no_domain_probes):
         # Rutas núcleo que el panel y los dominios consumen deben estar montadas.
         assert "/api/v1/health" in paths
         assert "/api/v1/events" in paths
+
+
+# ---------------------------------------------------------------------------
+# Ramas de ÉXITO-init del lifespan (C113). Los tests de arriba cubren el arranque
+# DEGRADADO (sin infra); estos cubren el camino con infra presente y las ramas `else`
+# de los flags, que eran el único hueco <80% del árbol (main.py, barrido C112).
+# ---------------------------------------------------------------------------
+
+
+async def test_lifespan_full_init_with_postgres(require_postgres, no_domain_probes):
+    """Con PostgreSQL disponible, el lifespan inicializa TODOS los subsistemas (event/user/
+    prompt store, prompt agent+executor, md_sync, scheduler, multi-agent) y los apaga limpio.
+    Cubre las ramas de éxito (149-234) y de shutdown (243-278) que el arranque degradado no
+    toca. `require_postgres` salta sin DB usable; `no_domain_probes` mantiene los sondeos
+    herméticos."""
+    async with app.router.lifespan_context(app):
+        s = app.state
+        assert s.event_store is not None
+        assert s.user_store is not None
+        assert s.prompt_store is not None
+        assert s.prompt_agent is not None
+        assert s.prompt_executor is not None
+        assert s.md_sync is not None
+        assert s.scheduler is not None
+        assert s.workflow_engine is not None
+        assert s.crew_manager is not None
+    # tras el shutdown, la tarea de monitoreo del registry quedó cancelada (mismo contrato
+    # que el test degradado, ahora por el camino con subsistemas vivos).
+    assert app.state.service_registry._monitoring_task.done()
+
+
+async def test_lifespan_event_store_disabled_takes_else_branch(no_infra, monkeypatch):
+    """Con `event_store_enabled=False`, el lifespan toma el `else` (event_store=None sin
+    intentar conectar). Cubre la rama 130."""
+    monkeypatch.setattr(settings, "event_store_enabled", False, raising=False)
+    async with app.router.lifespan_context(app):
+        assert app.state.event_store is None
+
+
+async def test_lifespan_prompt_system_disabled_takes_else_branches(no_infra, monkeypatch):
+    """Con `prompt_system_enabled=False`, el lifespan salta el bloque de prompts y toma los
+    `else` (prompt_store/agent/executor=None sin intentar). Cubre 186-188."""
+    monkeypatch.setattr(settings, "prompt_system_enabled", False, raising=False)
+    async with app.router.lifespan_context(app):
+        assert app.state.prompt_store is None
+        assert app.state.prompt_agent is None
+        assert app.state.prompt_executor is None
+        assert app.state.md_sync is None
+
+
+async def test_lifespan_ngrok_enabled_starts_and_stops_tunnel(no_infra, monkeypatch):
+    """Con `ngrok_enabled=True`, el lifespan arranca el túnel y loguea la URL (228-230), y el
+    shutdown lo para si está conectado (244). Se mockea el servicio de túnel (sin ngrok real)."""
+    from unittest.mock import AsyncMock
+
+    import app.main as main_mod
+
+    fake = AsyncMock()
+    fake.start = AsyncMock(return_value="https://fake.ngrok.io")
+    fake.is_connected = True
+    monkeypatch.setattr(main_mod, "get_tunnel_service", lambda: fake)
+    monkeypatch.setattr(settings, "ngrok_enabled", True, raising=False)
+
+    async with app.router.lifespan_context(app):
+        assert app.state.tunnel_service is fake
+    fake.start.assert_awaited_once()
+    fake.stop.assert_awaited_once()  # parado en el shutdown (is_connected=True)
+
+
+async def test_global_exception_handler_returns_500():
+    """El handler global de excepciones no manejadas devuelve un 500 con JSON (323-324)."""
+    from unittest.mock import MagicMock
+
+    from app.main import global_exception_handler
+
+    resp = await global_exception_handler(MagicMock(), RuntimeError("boom"))
+    assert resp.status_code == 500
