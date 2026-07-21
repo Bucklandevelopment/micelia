@@ -16,6 +16,29 @@
 
 ---
 
+## 2026-07-21 — Ciclo 113 (**cierro el mapa de cobertura del barrido de C112: cubro el último módulo <80% (`main.py`, 78%→99%) — las ramas de ÉXITO-init del lifespan, que solo corren con postgres**): tarea (a) del plan de C112.
+
+**El hueco, preciso:** las 42 líneas sin cubrir de `main.py` eran las ramas de **éxito-init** del lifespan (event/user/prompt store, prompt agent+executor, md_sync, scheduler, multi-agent) + sus **shutdowns**. Solo corren **con PostgreSQL**: hasta hoy solo se testeaba el arranque **degradado** (sin infra, todo a None, C85-107). El camino con infra presente — la app arrancando de VERDAD todos sus subsistemas — no estaba pineado.
+
+- **Hecho:** 1 commit — `15bacac` `test(main): cubrir las ramas de éxito-init del lifespan (main.py 78%→99%)`. 5 tests nuevos:
+  - **`test_lifespan_full_init_with_postgres`** (`require_postgres` + `no_domain_probes`): boot del lifespan COMPLETO → los **8 subsistemas inicializan** (`assert app.state.*` no-None) y el shutdown los para limpio; cubre **149-234** (éxito) + **243-278** (shutdown). `skipif` sin postgres.
+  - ramas `else` de flags (sin infra, monkeypatch): `event_store_enabled=False` (130), `prompt_system_enabled=False` (186-188).
+  - `ngrok_enabled=True` con túnel mockeado: arranca + loguea URL (228-230) y para en shutdown (244).
+  - `global_exception_handler` → 500 (323-324).
+- **Verify:** **verde** — `make verify` sin postgres (full-init skip): `1709 passed, 20 skipped` (+4 que corren, +1 skip). Cobertura `main.py` **78%→99%** (solo queda el guard `if __name__ == "__main__"`).
+- **Ejercido con postgres real:** contenedor efímero aislado (`micelia-test-pg` :5433, propio, sin tocar el `idm-postgres`/deploy del usuario ni `.env`) → **7 pass**; de-risk previo confirmó que el lifespan completo bootea y apaga limpio (sin hang de tasks de fondo). **Mutation-verified:** quitar `app.state.prompt_executor = ...` del lifespan rompe el full-init.
+- **Higiene:** contenedor efímero **eliminado**, stack `deploy/` del usuario **intacto (Exited)**, **podman machine parada**. `:8888/:5433` libres, sin residuales.
+
+**HITO — mapa de cobertura CERRADO:** con `main.py` al 99% y `cli.py` al 99% (C112), **el árbol `app/` queda uniformemente ≥98%** salvo los guards de módulo (`__main__`). El barrido de C112 → C113 completó lo que empezó: identificar TODOS los huecos <80% y cerrarlos (ai.py C111, cli.py C112, main.py C113). El núcleo está medido de verdad (mutation-verified donde importa, no solo % de líneas).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-17** (biohack py3.14, único dominio sin ejercer), **DP-7** (canales, latente), **DP-1..DP-4** (funnel).
+
+**Mañana (Ciclo 114):** con el mapa de cobertura cerrado, es momento de **pivotar** — la cobertura ya no rinde huecos de valor. Vectores: **(a)** biohack si Jessicache mueve DP-17 (parametrizar `setup` a pyenv 3.13) — cerraría el 6º y último dominio sin ejercer live. **(b)** un **e2e cross-proyecto** real: 2 dominios (cybertools+ideacursi, ya arrancables) registrándose y latiendo contra el gateway a la vez, con el store persistiendo ambos — el eslabón que ningún test cubre (los guards son por-dominio o in-process). **(c)** preparar (no decidir) DP-1..DP-4 del funnel si Jessicache prioriza el deploy. Recordatorio honesto C66–C113: **un barrido se cierra, no se abandona a medias** (C112 encontró 2 huecos, C111-113 los cerraron los 3); **la rama de éxito importa tanto como la de fallo** (el lifespan degradado estaba cubierto, el completo no — y es el que corre en prod); **ejercer el arranque completo con infra efímera aislada, sin tocar el stack del usuario**; **reconocer cuándo un vector (cobertura) se agotó y pivotar**. Local-first M1: jamás `docker-full`; parar/eliminar todo; stack de prod intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 112 (**barrido de cobertura de TODO el árbol: el mapa dice que el núcleo está bien cubierto — solo 2 módulos <80%. Relleno el mayor (cli.py, 0%→99%), un entrypoint de usuario sin un solo test**): tarea (a) del plan de C111.
 
 **El barrido (el dato de valor):** `pytest --cov=app` sobre todo el árbol → **solo 2 módulos por debajo del 80%**: `cli.py` (**0%**, 218 stmts, el mayor hueco) y `main.py` (78%). Todo lo demás ≥80%. **El núcleo de servicios/endpoints/api está uniformemente sólido** — las 3 de C109-111 + el resto ya cubierto. El hueco dominante era el CLI, invisible hasta el barrido porque nadie lo miraba.
