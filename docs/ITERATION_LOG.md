@@ -16,6 +16,27 @@
 
 ---
 
+## 2026-07-21 — Ciclo 118 (**Jessicache confirma que `ollama-code` no es proyecto → EJECUTO C84-minor: borro el slot fantasma `devtools` que C84 solo había desactivado. Invierto mis propios pins de "no borrado"**): tarea con decisión del dueño (C84-minor, abierta desde C84 esperando confirmación).
+
+**El contexto:** C84 DESACTIVÓ el slot `devtools`/`ollama-code` (default `ollama_code_enabled=False`) pero NO lo eliminó — borrarlo era decisión del dueño, y C84 hasta pineó "NO borrado" (anti-sobreactuación). Hoy Jessicache confirma que `ollama-code` no existe ni está planificado → se elimina limpio.
+
+- **Hecho:** 1 commit — `6ebe1ab` `refactor(registry): eliminar el slot devtools/ollama-code (C84-minor, decisión del dueño)`. Borrado de:
+  - **`config.py`**: campos `ollama_code_url`/`ollama_code_enabled` + el `ServiceConfig` `devtools`.
+  - **`service_registry.py`**: `HEALTH_ENDPOINTS["devtools"]` + su bloque de service config + comentario.
+  - **tests**: quitado de las cuentas de slots (registry **6→5**: health/research/education/security/testlab), de las listas de monkeypatch, y de `_PROBED_URL_ATTRS` (conftest).
+- **Inversión de pins (patrón C98↔C97):** los DOS pins de C84 que guardaban "NO borrado" (`test_devtools_phantom_is_disabled_by_default` + `test_devtools_slot_survives_for_a_future_project`) se **invierten** a un único `test_devtools_slot_is_fully_removed` que asserta la ELIMINACIÓN (sin `ollama_code_*`, sin `devtools` en `services` ni en el registry). No se borran a ciegas: se actualizan al nuevo contrato, como C98 invirtió el guard de C97.
+- **Verify:** **verde** — `make verify`: `1718 passed, 22 skipped` (-1 neto: 2 tests → 1). Confirmado en vivo: el registry expone **5 slots**; `hasattr(settings,'ollama_code_enabled')` es False.
+- **Reversible:** si `ollama-code` renace, se re-añade como cualquier dominio nuevo (config + registry + puerto) — no se resucita un slot fantasma.
+- **Higiene:** cambio Micelia-side (config+registry+tests+ledger). No toca repos hermanos, infra, `.env` ni el runbook (WIP). Sin residuales.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ver `docs/DP_LEDGER.md` (actualizado: C84-minor → CERRADA). Genuinamente abiertas, **todas decisiones tuyas**: **DP-5** (rebrand env-vars — dejar-ambos/retirar IDM_*/migrar a MICELIA_URL), **DP-6** (en ideacursi — seed/auto-create/propagar identidad); + **DP-1..DP-4** (pasos de panel del funnel). **Nada más autonomizable de valor.**
+
+**Mañana (Ciclo 119):** **honestidad de rumbo (4º día) — el trabajo autonomizable de alto valor está AGOTADO.** Lo que queda son 2 decisiones del dueño (DP-5, DP-6) + los pasos humanos del funnel. **DP-5 es la única semi-ejecutable Micelia-side:** si Jessicache elige "retirar los `IDM_*` del compose" (opción b, limpieza de ~12 líneas alias muertas, reversible), la ejecuto; las otras dos opciones (dejar-ambos = no-op; migrar a MICELIA_URL = tocar 6 repos) no. DP-6 es en ideacursi (hermano). **Recomendación:** esperar input de Jessicache; si se pide un ciclo sin decisión, decir honestamente que no hay vector de valor en vez de fabricar. Recordatorio honesto C66–C118: **ejecutar la eliminación cuando el dueño la autoriza** (C84 esperó, C118 ejecuta — "desactivar > borrar hasta que el dueño decida" cerrado en su segunda mitad); **invertir los propios pins al cambiar el contrato, actualizándolos** (C98↔C97, hoy C118↔C84); **una eliminación reversible y pineada es segura**; **decir cuándo el vector se agotó**, 4 días seguidos. Local-first M1: read-only sobre infra/hermanos/WIP.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 117 (**Jessicache decide "python 3.13" para desbloquear biohack (DP-17). Audito antes de ejecutar y la premisa es INEXACTA: biohack fija 3.11 en su PROPIO setup.py y avisa contra 3.13. Ejecuto el INTENTO con la versión que de verdad funciona (3.11), y cierro el 6º y último dominio EN VIVO**): tarea (a) del plan de C116, con decisión del dueño.
 
 **Auditoría de la premisa (patrón C84, aunque la premisa venga de una decisión):** "python 3.13" no funcionaría — evidencia dura: (1) el `setup.py` de biohack dice literalmente *"Use Python 3.11 specifically to avoid pandas compatibility issues with 3.13"* + `requires-python=">=3.11"`; (2) sus deps pinneadas (`pandas==2.1.4`, `numpy==1.25.2`, scipy/sklearn/onnx de 2023) solo tienen wheels **cp311/cp312**, NO cp313/cp314 → en 3.13 fallarían a compilar **igual que en 3.14** (el fallo de C102); (3) **3.13 ni siquiera está instalado** (hay 3.10-3.12, 3.14), y **3.11 sí**. Verificado empíricamente: `pip install pandas==2.1.4 numpy==1.25.2` en un venv 3.11 → **wheels, exit 0**. → Ejecuto el INTENTO del dueño (desbloquear biohack) con **3.11**, la versión que biohack declara y que funciona, y lo flageo.
