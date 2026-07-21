@@ -178,6 +178,52 @@ def test_doctor_subcommand_is_wired_in_dispatch():
 
 
 # =============================================================================
+# setup — instala/recrea deps (C102). Se testea la lógica IDEMPOTENTE (skip) y el
+# dispatch; el install real (npm/pip) se verifica en vivo, no en la suite.
+# =============================================================================
+
+
+def test_install_venv_skips_when_already_healthy(tmp_path):
+    """install_venv NO recrea un venv sano (no borra deps buenas). Branch de skip, hermético
+    (no invoca pip). El install real de un venv roto se verifica en vivo, no en la suite."""
+    _make_venv(tmp_path, python_target=sys.executable)
+    r = _bash(f"install_venv 'Svc' '{tmp_path}'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "ya sano" in out and "rc=0" in out, out
+
+
+def test_install_node_missing_workdir_fails(tmp_path):
+    """install_node falla limpio si el workdir no existe (sin invocar npm)."""
+    missing = tmp_path / "nope"
+    r = _bash(f"install_node 'Fe' '{missing}'; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert "no existe" in out and "rc=1" in out, out
+
+
+def test_setup_venv_side_is_idempotent_when_healthy(tmp_path):
+    """do_setup sobre venvs sanos no recrea nada y sale 0 (idempotente). Se inyectan SOLO
+    servicios venv (los node harían `npm install` REAL, fuera del alcance hermético)."""
+    venv_a = tmp_path / "a"
+    venv_b = tmp_path / "b"
+    _make_venv(venv_a, python_target=sys.executable)
+    _make_venv(venv_b, python_target=sys.executable)
+    services = (
+        f"a|Venv A|{venv_a}|8000|.venv|cmd|hintA\n"
+        f"b|Venv B|{venv_b}|8001|.venv|cmd|hintB"
+    )
+    r = _bash(f"SERVICES='{services}'\ndo_setup; echo rc=$?")
+    out = r.stdout + r.stderr
+    assert out.count("ya sano") == 2
+    assert "rc=0" in out and "Deps de todos los dominios instaladas" in out
+
+
+def test_setup_subcommand_is_wired_in_dispatch():
+    text = _LAUNCHER.read_text(encoding="utf-8")
+    assert "setup)  do_setup" in text, "el subcomando `setup` no está cableado en el case"
+    assert "start|stop|status|doctor|setup" in text, "la ayuda de uso no menciona `setup`"
+
+
+# =============================================================================
 # preflight — el doctor integrado en `start` (C99): avisa, no aborta
 # =============================================================================
 

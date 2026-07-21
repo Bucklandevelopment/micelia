@@ -249,6 +249,92 @@ do_doctor() {
   return 0
 }
 
+# install_node LABEL WORKDIR: `npm install` en el workdir. Se corre SIEMPRE (no se salta un
+# árbol "presente"): `npm install` ES idempotente y COMPLETA un node_modules incompleto —
+# justo el caso de ideacursi (DP-19: presente pero le falta `reflect-metadata`), que un skip
+# por "node_modules poblado" NO arreglaría. Sobre un árbol completo es un no-op rápido.
+# 0 (ok) / 1 (fallo).
+install_node() {
+  local label="$1" workdir="$2"
+  if [ ! -d "$workdir" ]; then
+    printf "  ✗ %-24s no existe %s (omitido)\n" "$label" "$workdir"; return 1
+  fi
+  printf "  → %-24s npm install …\n" "$label"
+  if ( cd "$workdir" && npm install ); then
+    printf "  ✓ %-24s deps node OK\n" "$label"; return 0
+  fi
+  printf "  ✗ %-24s npm install FALLÓ (ver salida arriba)\n" "$label"; return 1
+}
+
+# install_venv LABEL WORKDIR: recrea el .venv (si falta o está huérfano) con el python del
+# sistema e instala deps auto-detectando el modo (requirements.txt / pyproject|setup.py / -e).
+# NO borra un venv sano. 0 (ok/ya-ok) / 1 (fallo). Idempotente.
+install_venv() {
+  local label="$1" workdir="$2"
+  if [ ! -d "$workdir" ]; then
+    printf "  ✗ %-24s no existe %s (omitido)\n" "$label" "$workdir"; return 1
+  fi
+  if venv_python_ok "$workdir"; then
+    printf "  • %-24s .venv ya sano (omitido)\n" "$label"; return 0
+  fi
+  # venv ausente o HUÉRFANO (intérprete muerto): recrear desde cero.
+  [ -e "$workdir/.venv" ] && rm -rf "$workdir/.venv"
+  printf "  → %-24s creando .venv (%s) …\n" "$label" "$(python3 --version 2>&1)"
+  if ! python3 -m venv "$workdir/.venv"; then
+    printf "  ✗ %-24s no se pudo crear el .venv\n" "$label"; return 1
+  fi
+  local pip="$workdir/.venv/bin/pip"
+  "$pip" install -q --upgrade pip >/dev/null 2>&1 || true
+  local rc=0
+  if [ -f "$workdir/requirements.txt" ]; then
+    printf "  → %-24s pip install -r requirements.txt …\n" "$label"
+    "$pip" install -q -r "$workdir/requirements.txt" || rc=1
+  elif [ -f "$workdir/pyproject.toml" ] || [ -f "$workdir/setup.py" ]; then
+    printf "  → %-24s pip install -e . …\n" "$label"
+    "$pip" install -q -e "$workdir" || rc=1
+  else
+    printf "  ✗ %-24s no sé instalar deps (sin requirements.txt / pyproject / setup.py)\n" "$label"
+    return 1
+  fi
+  if [ "$rc" = "0" ]; then
+    printf "  ✓ %-24s deps python instaladas (python %s)\n" "$label" \
+      "$("$workdir/.venv/bin/python" -c 'import platform;print(platform.python_version())' 2>/dev/null)"
+    return 0
+  fi
+  printf "  ✗ %-24s pip install FALLÓ (deps sin wheel para este python? ver arriba)\n" "$label"
+  return 1
+}
+
+# setup: instala/recrea las deps de cada dominio (node_modules + venvs) para desbloquear los
+# arranques. Idempotente (solo toca lo que el doctor marcaría). Autorizado por Jessicache
+# (C102) a instalar deps de repos hermanos — el ÚNICO punto de la rutina que los modifica, y
+# solo su árbol de deps gitignored (node_modules/.venv), nunca su código ni su `.env`.
+do_setup() {
+  echo "== Setup de deps del ecosistema (instala lo que falte; idempotente) =="
+  echo "  python del sistema: $(python3 --version 2>&1)"
+  echo "  node del sistema:   $(node --version 2>&1)"
+  local any_bad=0
+  echo "  — servicios node (node_modules) —"
+  while IFS='|' read -r id label dir port marker cmd hint; do
+    [ -z "$id" ] && continue
+    [ "$marker" = "node_modules" ] || continue
+    install_node "$label" "$dir" || any_bad=1
+  done <<< "$SERVICES"
+  echo "  — servicios python (.venv) —"
+  while IFS='|' read -r id label dir port marker cmd hint; do
+    [ -z "$id" ] && continue
+    [ "$marker" = ".venv" ] || continue
+    install_venv "$label" "$dir" || any_bad=1
+  done <<< "$SERVICES"
+  echo
+  if [ "$any_bad" = "1" ]; then
+    echo "  → Algún dominio no quedó listo (ver ✗ arriba). Corre 'doctor' para el estado."
+    return 1
+  fi
+  echo "  ✓ Deps de todos los dominios instaladas. 'doctor' debería estar todo en verde."
+  return 0
+}
+
 # preflight: corre el doctor ANTES de arrancar y, si hay blockers, da el contexto propio
 # del arranque (qué pasará y cómo abortar) — cierra el bucle diagnóstico→prevención de C97/98.
 # NO aborta: `start_svc` ya OMITE con gracia cada servicio sin deps, así que el resto arranca;
@@ -271,6 +357,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     stop)   do_stop ;;
     status) do_status ;;
     doctor) do_doctor ;;
-    *) echo "Uso: $0 {start|stop|status|doctor} [--with-codking-inference]"; exit 2 ;;
+    setup)  do_setup ;;
+    *) echo "Uso: $0 {start|stop|status|doctor|setup} [--with-codking-inference]"; exit 2 ;;
   esac
 fi
