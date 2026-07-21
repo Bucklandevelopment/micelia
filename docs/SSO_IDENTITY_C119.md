@@ -30,6 +30,20 @@ biohack con `SECRET_KEY` = el de Micelia + postgres/redis efímeros: token de Mi
 → `/api/v1/auth/me` **200 + usuario auto-provisionado**; 2ª llamada 200 (idempotente); token sin
 `iss` + email desconocido → **401** (no crea cuentas ajenas).
 
+## Rollout — EJECUTADO (lado Micelia) + PREPARADO (biohack)
+**Lado Micelia YA EN VIVO** (`deploy/scripts/sso-rollout.sh`): idm-core (email+iss) y
+micelia-frontend (hand-off) reconstruidos y recreados (`--force-recreate`); token del funnel
+verificado con `email`+`iss:micelia`.
+
+**biohack PREPARADO** (arráncalo tú con `deploy/scripts/sso-rollout.sh --with-biohack`):
+- Secreto compartido cableado en el compose: `biohack-app` recibe `SECRET_KEY=${JWT_SECRET_KEY}`
+  (fuente única `deploy/.env`). Verificado: coincide con el de idm-core.
+- CORS: `biohack-app` permite `http://localhost:8082,http://localhost:5173`.
+- `VITE_API_BASE_URL` del frontend horneado a `http://localhost:8081/api/v1` (ARG en el Dockerfile
+  + build.args del compose). `--with-biohack` construye+arranca back (:8081) **y** front (:8082).
+- **Móvil/LAN:** pon en `deploy/.env` → `BIOHACK_API_URL=http://<IP-LAN>:8081/api/v1` y
+  `BIOHACK_CORS_ORIGINS=http://<IP-LAN>:8082` y re-corre `--with-biohack` (rehornea el VITE).
+
 ## Rollout pendiente (pasos del dueño, a su ritmo)
 1. **Secreto compartido:** poner `SECRET_KEY` de biohack = `JWT_SECRET_KEY` de Micelia (en el
    `.env`/arranque de biohack). SIN esto, biohack rechaza los tokens de Micelia.
