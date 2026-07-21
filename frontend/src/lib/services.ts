@@ -40,6 +40,12 @@ export interface ServiceCatalogEntry {
   tieneWebUI: boolean
   /** Texto del botón de acceso. */
   enlaceLabel: string
+  /**
+   * true → el dominio acepta SSO de Micelia (C119): al abrirlo, el hub le pasa el access
+   * token en el fragmento de la URL (`#sso_token=…`) para que el usuario llegue ya logueado.
+   * Solo para dominios cuyo backend valida el JWT de Micelia (hoy: biohack).
+   */
+  sso?: boolean
 }
 
 export const serviceCatalog: ServiceCatalogEntry[] = [
@@ -51,6 +57,7 @@ export const serviceCatalog: ServiceCatalogEntry[] = [
     frontendUrl: process.env.NEXT_PUBLIC_BIOHACK_URL || 'http://localhost:5173',
     tieneWebUI: true,
     enlaceLabel: 'Abrir panel',
+    sso: true,
   },
   {
     id: 'canela',

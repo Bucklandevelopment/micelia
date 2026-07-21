@@ -95,6 +95,23 @@ export default function ServiciosPage() {
                   href={svc.frontendUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => {
+                    // SSO hand-off (C119): para dominios que aceptan el token de Micelia,
+                    // adjuntamos el access token en el FRAGMENTO de la URL (no viaja al
+                    // servidor ni se loguea) para que el usuario llegue ya logueado.
+                    if (!svc.sso) return
+                    const token =
+                      typeof window !== 'undefined'
+                        ? localStorage.getItem('vital_access_token')
+                        : null
+                    if (!token) return
+                    e.preventDefault()
+                    window.open(
+                      `${svc.frontendUrl}#sso_token=${encodeURIComponent(token)}`,
+                      '_blank',
+                      'noopener,noreferrer'
+                    )
+                  }}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-300 hover:text-white bg-idm-surface rounded-lg border border-idm-border hover:border-idm-primary/50 transition-all"
                 >
                   <span>{svc.enlaceLabel}</span>
