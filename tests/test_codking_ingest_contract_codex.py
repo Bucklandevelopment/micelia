@@ -10,7 +10,7 @@ caso concreto de codking, que es PUSH puro).
 Verificado por lectura de AMBOS lados (no asumido):
   * **Micelia (ingest):** `source` admite cualquier string; `_normalize_source` solo toca el
     legacy `idm-core→micelia`, así que `codking` se persiste literal. El registry declara 6
-    slots (health/research/education/security/devtools/testlab) — codking NO está.
+    slots (health/research/education/security/testlab) — codking NO está.
   * **codking (SDK hermano):** `integrations/vital_sdk/config.py` fija `service_name="codking"`
     y `client.py::publish_event` manda `source=self.config.service_name`, hace
     `resp.raise_for_status()` y devuelve `resp.json()` → depende de un 2xx + el SHAPE de la
@@ -38,7 +38,7 @@ _CK_CONFIG = _PROJECTS / "codking" / "integrations" / "vital_sdk" / "config.py"
 _CK_CLIENT = _PROJECTS / "codking" / "integrations" / "vital_sdk" / "client.py"
 
 # Los 6 slots que el registry SÍ sondea (fuente: ServiceRegistry.HEALTH_ENDPOINTS).
-_REGISTRY_SLOTS = {"health", "research", "education", "security", "devtools", "testlab"}
+_REGISTRY_SLOTS = {"health", "research", "education", "security", "testlab"}
 
 
 # =============================================================================

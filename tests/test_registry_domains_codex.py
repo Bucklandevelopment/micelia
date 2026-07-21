@@ -61,37 +61,23 @@ def _config_default(field: str):
 
 
 # --------------------------------------------------------------------------- #
-# El único fantasma REAL: devtools / ollama-code.
+# El fantasma devtools / ollama-code: ELIMINADO en C118 (C84-minor, decisión del dueño).
 # --------------------------------------------------------------------------- #
-def test_devtools_phantom_is_disabled_by_default():
-    """`ollama-code` no existe en el ecosistema → no se sondea por defecto.
-
-    Mutación: si alguien vuelve a poner el default en True, cada arranque local
-    sondea :8890 cada 30s para siempre y lo lista como "sin conexión" (el ruido que
-    destapó DP-14 en C83).
-    """
-    assert _config_default("ollama_code_enabled") is False, (
-        "ollama_code_enabled volvió a True. `ollama-code` NO EXISTE (nadie bindea :8890 "
-        "en el árbol) → se sondearía cada 30s eternamente. Si el proyecto YA existe, "
-        "actualiza este test y el comentario de config.py; si no, déjalo en False."
-    )
-
-
-def test_devtools_slot_survives_for_a_future_project():
-    """El fix de C84 DESACTIVA, no elimina: el slot sigue configurable por env.
-
-    Anti-sobreactuación: pinea que la decisión de BORRAR el slot (de Jessicache) no se
-    tomó unilateralmente — `devtools` sigue existiendo y se puede reactivar.
-    """
+def test_devtools_slot_is_fully_removed():
+    """El slot `devtools`/`ollama-code` se BORRÓ en C118: Jessicache confirmó que `ollama-code`
+    no es un proyecto planificado. C84 lo desactivó (default False); C118 lo elimina de config
+    (`ollama_code_*`), de `settings.services` y del registry. Pin de la eliminación (invierte
+    los pins de C84 que guardaban 'no borrado'): si `ollama-code` renace, se re-añade como
+    cualquier dominio nuevo (config + registry + puerto), no se resucita un slot fantasma."""
     from app.core.config import Settings
+    from app.services.service_registry import ServiceRegistry
 
-    s = Settings(ollama_code_enabled=True)
-    assert s.ollama_code_enabled is True, (
-        "el slot devtools dejó de ser reactivable por configuración; C84 lo desactivó "
-        "por defecto pero NO lo eliminó (eso es decisión de Jessicache)."
-    )
-    assert "devtools" in s.services, (
-        "el slot 'devtools' desapareció de settings.services; C84 no autorizó borrarlo."
+    s = Settings()
+    assert not hasattr(s, "ollama_code_enabled"), "reapareció ollama_code_enabled (C118 lo borró)"
+    assert not hasattr(s, "ollama_code_url"), "reapareció ollama_code_url (C118 lo borró)"
+    assert "devtools" not in s.services, "reapareció el slot 'devtools' en settings.services"
+    assert "devtools" not in ServiceRegistry.HEALTH_ENDPOINTS, (
+        "reapareció 'devtools' en el registry — el slot fantasma se resucitó"
     )
 
 

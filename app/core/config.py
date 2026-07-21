@@ -68,17 +68,11 @@ class Settings(BaseSettings):
     security_service_url: str = "http://localhost:8000"
     security_service_enabled: bool = True
 
-    # === DevTools Services ===
-    # DP-14 (C84): `ollama-code` NO EXISTE en el ecosistema — auditado: NADIE bindea
-    # :8890 (esta línea es la única referencia al puerto en todo el árbol) y no hay
-    # proyecto con ese nombre. Con el default en True, cada arranque local lo sondeaba
-    # cada 30s para siempre y lo listaba como "sin conexión". El default pasa a False
-    # para alinearse con la ÚNICA implantación que lo configura, que ya lo declara así:
-    # docker-compose.yml → `OLLAMA_CODE_ENABLED=false  # Service not in compose`.
-    # El slot NO se elimina (si algún día existe, basta OLLAMA_CODE_ENABLED=true):
-    # borrarlo es decisión de Jessicache, no de esta rutina.
-    ollama_code_url: str = "http://localhost:8890"
-    ollama_code_enabled: bool = False
+    # DP-14 / C84-minor (ELIMINADO en C118): el slot `devtools`/`ollama-code` (`:8890`) se
+    # DESACTIVÓ en C84 (default False) y se BORRÓ en C118 por decisión de Jessicache — confirmado
+    # que `ollama-code` no es un proyecto planificado. `ollama_code_url`/`ollama_code_enabled`,
+    # el ServiceConfig `devtools` y el slot del registry ya no existen. Si algún día existe tal
+    # proyecto, se re-añade como cualquier dominio nuevo (config + registry + puerto).
 
     # DP-14 (C84): `imperio-lab` NO es un fantasma pese al nombre heredado: es
     # **auto-mat-ion**, que declara `servicePort: 8891, // imperio_lab_url port from
@@ -236,11 +230,6 @@ class Settings(BaseSettings):
             "security": ServiceConfig(
                 url=self.security_service_url,
                 enabled=self.security_service_enabled,
-                timeout=self.service_timeout
-            ),
-            "devtools": ServiceConfig(
-                url=self.ollama_code_url,
-                enabled=self.ollama_code_enabled,
                 timeout=self.service_timeout
             ),
             "testlab": ServiceConfig(

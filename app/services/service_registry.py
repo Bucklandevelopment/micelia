@@ -45,14 +45,14 @@ class ServiceRegistry:
     #   - education (ideacursi-tool): /api/health            (setGlobalPrefix('api')
     #                                + @Controller('health') + @Get())
     #   - security (cybertools):     /health                (src/scanet/api.py:127)
-    #   - devtools (ollama-code):    /health
     #   - testlab  (imperio-lab):    /health
+    # (el slot `devtools`/ollama-code se ELIMINÓ en C118 — C84-minor, decisión de Jessicache:
+    #  ollama-code no es un proyecto planificado.)
     HEALTH_ENDPOINTS: Dict[str, str] = {
         "health": "/api/v1/service-health",
         "research": "/health",
         "education": "/api/health",
         "security": "/health",
-        "devtools": "/health",
         "testlab": "/health",
     }
 
@@ -87,12 +87,6 @@ class ServiceRegistry:
                 "url": settings.security_service_url,
                 "enabled": settings.security_service_enabled,
                 "health_endpoint": self.HEALTH_ENDPOINTS["security"],
-            },
-            # DevTools Services
-            "devtools": {
-                "url": settings.ollama_code_url,
-                "enabled": settings.ollama_code_enabled,
-                "health_endpoint": self.HEALTH_ENDPOINTS["devtools"],
             },
             "testlab": {
                 "url": settings.imperio_lab_url,

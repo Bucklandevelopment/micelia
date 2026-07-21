@@ -109,7 +109,7 @@ def test_services_map_reflects_config():
     )
     services = s.services
     assert set(services) == {
-        "health", "research", "education", "security", "devtools", "testlab",
+        "health", "research", "education", "security", "testlab",
     }
     assert all(isinstance(v, ServiceConfig) for v in services.values())
     assert services["health"].url == "http://h:1"

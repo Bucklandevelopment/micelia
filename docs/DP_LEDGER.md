@@ -41,11 +41,11 @@
 | DP-19 | ideacursi `node_modules` incompleto | **CERRADA** (C102) | `setup` completó el árbol (`reflect-metadata`). |
 | DP-20 | ideacursi exige redis-stack en :6380 | **CERRADA** (C104) | El compose expone `:6380` (RediSearch para el vector). |
 | DP-21 | Colisión dev/prod de `container_name` | **CERRADA** (C106) | Infra dev de micelia renombrada a `micelia-*`. |
-| C84-minor | Eliminar el slot `devtools`/`ollama_code_*` | **ABIERTA** (dueño) | Hoy solo **desactivado** (`ollama_code_enabled=False`, verificado C116). Se elimina si el dueño confirma que `ollama-code` no es proyecto planificado. |
+| C84-minor | Eliminar el slot `devtools`/`ollama_code_*` | **CERRADA** (C118) | El dueño confirmó que `ollama-code` no es proyecto planificado. Borrado de config (`ollama_code_url`/`_enabled`), `settings.services` y el registry → **5 slots** (health/research/education/security/testlab). Pin de eliminación en `test_registry_domains`. |
 
 ## Lo genuinamente PENDIENTE del dueño (resumen)
 
-- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-6 (en ideacursi), C84-minor (borrar slot devtools). *(DP-17 cerrada C117 — biohack en python 3.11.)*
+- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-6 (en ideacursi). *(DP-17 cerrada C117 — biohack en python 3.11; C84-minor cerrada C118 — slot devtools borrado.)*
 - **Pasos humanos de ejecución (no decisión):** DP-1..DP-4 → panel IONOS (A-record + API key DDNS), port-forward TP-Link 80/443, `pmset`. Verificables con `scripts/funnel-preflight.sh` (C115).
 - **Decidida, no re-listar como pendiente:** DP-7 (documentar, no migrar).
 

@@ -261,7 +261,7 @@ async def test_discover_services_registers_all_and_starts_monitoring(client):
     try:
         await reg.discover_services()
         assert set(reg.services) == {
-            "health", "research", "education", "security", "devtools", "testlab"
+            "health", "research", "education", "security", "testlab"
         }
         assert reg._monitoring_task is not None
     finally:
@@ -303,13 +303,12 @@ def test_health_endpoints_match_audited_domain_contracts():
     #                                bajo setGlobalPrefix('api') en main.js:65)
     #   - security (cybertools):    /health
     #                               (cybertools/src/scanet/api.py:127 @app.get)
-    # devtools/testlab: default "/health" (servicios feature-flagged, no montados).
+    # testlab: default "/health" (servicio feature-flagged, no montado).
     assert ServiceRegistry.HEALTH_ENDPOINTS == {
         "health": "/api/v1/service-health",
         "research": "/health",
         "education": "/api/health",
         "security": "/health",
-        "devtools": "/health",
         "testlab": "/health",
     }, (
         "HEALTH_ENDPOINTS divergió del contrato auditado; re-verifica el handler "
@@ -325,7 +324,7 @@ async def test_discover_services_unhealthy_only_health_hint(client, monkeypatch)
 
     for attr in (
         "research_service_enabled", "education_service_enabled",
-        "security_service_enabled", "ollama_code_enabled", "imperio_lab_enabled",
+        "security_service_enabled", "imperio_lab_enabled",
     ):
         monkeypatch.setattr(sr.settings, attr, False, raising=False)
     monkeypatch.setattr(sr.settings, "health_service_enabled", True, raising=False)
@@ -366,7 +365,7 @@ async def test_discover_services_unhealthy_multiple_hint_docker_full(client, mon
 
     for attr in (
         "research_service_enabled", "education_service_enabled",
-        "security_service_enabled", "ollama_code_enabled", "imperio_lab_enabled",
+        "security_service_enabled", "imperio_lab_enabled",
         "health_service_enabled",
     ):
         monkeypatch.setattr(sr.settings, attr, True, raising=False)

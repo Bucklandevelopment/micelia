@@ -118,7 +118,6 @@ _PROBED_URL_ATTRS = (
     "research_service_url",
     "education_service_url",
     "security_service_url",
-    "ollama_code_url",
     "imperio_lab_url",
 )
 

@@ -62,7 +62,6 @@ async def _hint_for(monkeypatch, urls: dict[str, str]) -> str:
         "imperio_lab_enabled",
     ):
         monkeypatch.setattr(sr.settings, attr, True, raising=False)
-    monkeypatch.setattr(sr.settings, "ollama_code_enabled", False, raising=False)
 
     warnings: list[str] = []
     monkeypatch.setattr(sr.log, "warning", lambda msg, *a, **k: warnings.append(str(msg)))
@@ -121,7 +120,6 @@ async def test_native_gateway_with_only_health_down_is_not_sent_to_docker_health
         "education_service_enabled",
         "security_service_enabled",
         "imperio_lab_enabled",
-        "ollama_code_enabled",
     ):
         monkeypatch.setattr(sr.settings, attr, False, raising=False)
     hint = await _hint_for(
