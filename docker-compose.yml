@@ -52,6 +52,16 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+      # DP-20 (C104): ideacursi arranca su RedisVectorService haciendo `FT.CREATE` (índice
+      # RediSearch) en el boot, y su default es `redis://localhost:6380`
+      # (ideacursi-tool/backend/src/cache/services/redis-vector.service.js). La imagen ya es
+      # redis-stack (trae RediSearch), pero solo exponía :6379 → un ideacursi arrancado NATIVO
+      # (run-ecosystem.sh start + docker-infra, sin REDIS_URL inyectado) no lo alcanzaba y
+      # crasheaba en FT.CREATE. Este bind mapea host :6380 → el mismo redis-stack, así que el
+      # vector de ideacursi conecta. (En docker-full el contenedor usa REDIS_URL=redis:6379, así
+      # que este host-bind es solo para el arranque local nativo.) Verificado live en C103/C104.
+      # Pineado por tests/test_infra_redis_stack_codex.py.
+      - "6380:6379"
       - "8001:8001"  # RedisInsight
     volumes:
       - redis_data:/data
