@@ -16,6 +16,30 @@
 
 ---
 
+## 2026-07-21 — Ciclo 108 (**voy a pinear "el 4º mecanismo: auto-mat-ion por Redis pub/sub" y la auditoría me corrige a MÍ: auto-mat-ion registra por REST (ya cubierto), y su pub/sub es el drift DP-7 conocido y latente que Micelia NO consume. Patrón C84: la premisa heredada — mía, de C107 — estaba mal**): tarea (a) del plan de C107. Auditoría de AMBOS lados antes de pinear (disciplina C100).
+
+**Lo que verifiqué (leyendo, no asumiendo):**
+1. **Micelia NO se suscribe a canales de dominio** para ingestar al store. Su `event_bus` tiene `publish/subscribe/listen`, pero **nada** en `app/` se suscribe a `idm.system`/etc. para persistir — el store se llena por **REST** (`POST /api/v1/events`, C86/C100).
+2. **auto-mat-ion REGISTRA POR REST, no pub/sub:** `registerService()` → `postEventToGateway()` → `POST /api/v1/events` con `service.registered`. **Mismo mecanismo que C86** — no un 4º mecanismo nuevo.
+3. **Su publish a Redis va a `vital.${category}`** (`vital-core.ts:171`) — y Micelia usa **`idm.*`** (`EVENT_CHANNELS`). **No casan.** Es el **DRIFT DP-7** (Ciclo 41), **ya documentado en `app/sdk/models.py:70-79`**: los 5 SDK de dominio publican `vital.*` (herencia vital-core), Micelia `idm.*`, el destino del rebrand es `micelia.*` (nadie lo usa); resolverlo es migración coordinada irreversible de 6 servicios → **decisión del dueño, latente por diseño** ("cualquier consumo pub/sub cruzado fallaría en silencio").
+
+**Conclusión: NO hay un "4º mecanismo pub/sub" que pinear como vivo.** El camino vivo de auto-mat-ion es **REST** (ya cubierto por el contrato de C86); el pub/sub es drift latente. La premisa de mi plan de C107 era incorrecta — igual que C84 corrigió a C83 sobre "testlab fantasma".
+
+- **Hecho:** 1 commit — `873b549` `test(automation): el camino vivo de auto-mat-ion es REST, no pub/sub (corrige premisa C107) + guard DP-7`. `tests/test_automation_ingest_path_codex.py` (3 pins, cross-repo SKIP): (1) auto-mat-ion registra vía `postEventToGateway` → `POST /api/v1/events` (el camino que DE VERDAD llega; si pasara a Redis-only dejaría de registrarse, porque Micelia no consume ese pub/sub); (2) su publish usa `vital.*`; (3) Micelia usa `idm.*` → **pin del drift DP-7 en ambos lados**: si algún día se alinean (DP-7 resuelto), el pin muerde y recuerda el lockstep.
+- **Verify:** **verde** — `make verify`: `1657 passed, 19 skipped` (+3), cobertura ~95%.
+- **Disciplina:** **mutation-verified** — si Micelia adopta `vital.*` el pin DP-7 muerde; los regex cross-repo rechazan drift plausible (`idm.*`/`micelia.*`). Repo hermano auto-mat-ion **solo leído**.
+- **Higiene:** cambio test-only, cero servicios/infra, `.env` no leído, sin residuales.
+
+**Balance de mecanismos SDK↔micelia (cerrado):** los mecanismos VIVOS están todos pineados — **register/heartbeat REST** (C86/C88), **registry PULL** (C90), **cross PUSH/PULL** (C92), **ingest codking** (C100), y ahora **auto-mat-ion=REST** (C108, corregido). El "pub/sub de dominio→store" **no existe como mecanismo vivo** (Micelia no lo consume); lo que hay es el drift DP-7, ahora **guardado** (no resuelto — es del dueño).
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-7** (namespace de canales: `idm.*` vs `vital.*` vs destino `micelia.*` — migración coordinada de 6 servicios) sigue **abierta y latente** (ahora con guard). **DP-17** (biohack py3.14) y **DP-1..DP-4** (funnel) siguen. **Nota:** DP-7 solo importa el día que Micelia quiera consumir eventos de dominio por pub/sub (hoy no lo hace: todo por REST); mientras, es cosmético.
+
+**Mañana (Ciclo 109):** con todos los mecanismos vivos pineados, los vectores por valor: **(a)** biohack si Jessicache mueve DP-17 (parametrizar `setup` al intérprete pyenv 3.13) — es el único dominio sin ejercer live. **(b)** cobertura núcleo con valor real donde el mutation-testing revele huecos (módulos con menos pins: `prompt_executor`, `frangels`, `compute_router`). **(c)** preparar (no decidir) DP-1..DP-4 del funnel si Jessicache prioriza el deploy. Recordatorio honesto C66–C108: **auditar la premisa heredada, aunque sea MÍA** (C107 dijo "pub/sub"; la realidad es REST — C108 se corrige como C84 a C83); **el código propio ya documentaba el drift** (models.py:70-79 tenía DP-7 escrito — leerlo antes de "descubrir"); **guardar un drift latente ≠ resolverlo** (DP-7 es del dueño; el pin solo lo hace visible/tripwire); **un mecanismo que nadie consume no es un mecanismo** (el pub/sub de dominio no llega al store). Local-first M1: jamás `docker-full`; parar todo; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 107 (**por FIN corro `run-ecosystem.sh start` de verdad — lo que C105 no pudo — y RINDE: education arranca DENTRO del flujo, el registry la ve `healthy=True, version=0.1.0`. Y ejercer el `stop` destapa un bug: dejaba huérfanos los procesos hijo de los dominios BE+FE**): tarea (a) del plan de C106. Con la infra ya desacoplada (C106), el arranque conjunto por fin es posible.
 
 **El arranque, ejercido (condiciones: imágenes ya pulled, deploy Exited → puertos libres):** `run-ecosystem.sh start` →
