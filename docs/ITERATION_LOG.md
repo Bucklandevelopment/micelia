@@ -16,6 +16,25 @@
 
 ---
 
+## 2026-07-21 — Ciclo 112 (**barrido de cobertura de TODO el árbol: el mapa dice que el núcleo está bien cubierto — solo 2 módulos <80%. Relleno el mayor (cli.py, 0%→99%), un entrypoint de usuario sin un solo test**): tarea (a) del plan de C111.
+
+**El barrido (el dato de valor):** `pytest --cov=app` sobre todo el árbol → **solo 2 módulos por debajo del 80%**: `cli.py` (**0%**, 218 stmts, el mayor hueco) y `main.py` (78%). Todo lo demás ≥80%. **El núcleo de servicios/endpoints/api está uniformemente sólido** — las 3 de C109-111 + el resto ya cubierto. El hueco dominante era el CLI, invisible hasta el barrido porque nadie lo miraba.
+
+- **Hecho:** 1 commit — `5cbbd20` `test(cli): cubrir el CLI micelia (cli.py 0%→99%)`. **`tests/test_cli_codex.py` (22 tests)** con **`CliRunner`** (captura la salida Rich + el exit-code — verificado con un POC antes) + **`respx`** (intercepta el `httpx.AsyncClient` que cada comando crea, el único borde externo): `status` (healthy/degraded/non-200/ConnectError→exit1), `services`, `events` (200/503/error/connect), `ai status` (ambas ramas), `energy`, `create-course` POST (éxito/non-200/timeout/connect), `start` (uvicorn.run mockeado, verifica host/port), version/help, y el entrypoint deprecado `idm`.
+- **Verify:** **verde** — `make verify`: `1705 passed, 19 skipped` (+22), cobertura `cli.py` **0%→99%** (solo queda el guard `__main__`).
+- **Método honesto:** POC primero (¿CliRunner captura Rich? ¿los exit-codes son fiables?) → sí; luego los 22. Sin tocar red ni gateway; respx intercepta.
+- **Higiene:** test-only, cero servicios/infra, sin residuales.
+
+**DECISIÓN (documentada, no forzada):** tras cli.py, **el único módulo <80% es `main.py` (78%)** — las 42 líneas sin cubrir son las **ramas de ÉXITO-init del lifespan** (prompt_store→agent→executor, md_sync, scheduler, workflow/crew) que solo corren **con postgres arriba** (hoy solo se testea el arranque DEGRADADO sin infra). Cubrirlas exige bootear el lifespan COMPLETO con postgres + muchas tasks de fondo + shutdown limpio → **se deja para un ciclo con infra**, no se fuerza aquí con el gate ya en verde (~94% global). Es el candidato natural del día que se quiera.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-17** (biohack py3.14), **DP-7** (canales, latente), **DP-1..DP-4** (funnel).
+
+**Mañana (Ciclo 113):** **(a)** `main.py` lifespan success-init con postgres (require_postgres + no_domain_probes, patrón C86) — el último módulo <80%; cierra el mapa de cobertura. **(b)** biohack si Jessicache mueve DP-17. **(c)** si el mapa está uniformemente ≥80%, declarar el núcleo sólido y pivotar (preparar DP-1..4, o un e2e cross-proyecto que ejercite 2 dominios contra el gateway). Recordatorio honesto C66–C112: **un barrido de cobertura del árbol entero revela el hueco que ningún ciclo puntual ve** (cli.py al 0%, invisible); **el mayor hueco no siempre es el más valioso, pero un entrypoint de usuario al 0% sí merece cubrirse**; **POC antes de escribir 22 tests** (confirmar que CliRunner+Rich+respx funcionan); **no forzar cobertura que exige infra en un ciclo sin ella** — documentarla como el siguiente paso. Local-first M1: jamás `docker-full`; parar todo; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 111 (**"compute_router coverage" — pero NO existe un `compute_router.py`: es un flag y el ruteo vive en `app/api/v1/ai.py`, que estaba al 44% (no 99% como los 2 anteriores). No un caza-mutaciones fino, sino cobertura de verdad de un módulo núcleo medio-desnudo**): tarea (a) del plan de C110.
 
 **Auditoría de la premisa (C84/C89) antes de empezar:** busqué `compute_router.py` → **no existe**. `compute_router` es (1) un flag `compute_router_enabled` y (2) el **ruteo de chat en `ai.py`** (CodKing vs Ollama). Y `ai.py` **no tenía test dedicado** (`test_api_ai_codex.py` no existía) → **44% de líneas** (124 stmts, 69 sin cubrir): la decisión de ruteo, ambos helpers de chat y los 4 endpoints (embeddings, threat-detection, health-analysis, models) **enteros sin cubrir**. Distinto de C109/C110 (que ya estaban al 99-100% y era caza-mutaciones): aquí es cobertura real de código desnudo.
