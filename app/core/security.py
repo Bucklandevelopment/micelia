@@ -455,9 +455,17 @@ class JWTAuthManager:
     def hash_password(plain_password: str) -> str:
         return pwd_context.hash(plain_password)
 
-    def create_access_token(self, subject: str = "admin") -> str:
+    def create_access_token(
+        self, subject: str = "admin", extra_claims: Optional[dict] = None
+    ) -> str:
         expire = datetime.now(timezone.utc) + self._access_expire
         payload = {"sub": subject, "exp": expire, "type": "access"}
+        # Claims extra para SSO (C119): p.ej. `email` (identidad que los dominios resuelven
+        # en su tabla local) e `iss:"micelia"` (marcador de emisor para que un dominio
+        # sepa que el token es de Micelia y auto-provisione al usuario). Aditivo y
+        # retrocompatible: sin extra_claims el token es idéntico al de antes.
+        if extra_claims:
+            payload.update(extra_claims)
         return jose_jwt.encode(payload, self._secret, algorithm=self._algorithm)
 
     def create_refresh_token(self, subject: str = "admin") -> str:

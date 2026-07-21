@@ -178,6 +178,7 @@ async def test_login_registered_user_happy_path(client_with_store, store):
     store.get_user_by_email = AsyncMock(
         return_value={
             "user_id": user_id,
+            "email": "user@example.com",
             "password_hash": _stub_hash(_PASSWORD),
             "is_active": True,
         }
@@ -190,7 +191,11 @@ async def test_login_registered_user_happy_path(client_with_store, store):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert jwt_auth.decode_token(body["access_token"])["sub"] == user_id
+    claims = jwt_auth.decode_token(body["access_token"])
+    assert claims["sub"] == user_id
+    # SSO (C119): el access token de un usuario del funnel lleva email + iss=micelia.
+    assert claims["email"] == "user@example.com"
+    assert claims["iss"] == "micelia"
     store.get_user_by_email.assert_awaited_once_with(
         "user@example.com", include_hash=True
     )

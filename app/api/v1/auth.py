@@ -6,6 +6,7 @@ Does NOT require auth itself (it's the entry point).
 """
 
 import re
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -64,10 +65,18 @@ class SetupRequest(BaseModel):
     password: str
 
 
-def _issue_tokens(subject: str) -> TokenResponse:
-    """Emite el par access/refresh para un `subject` (user_id o admin)."""
+def _issue_tokens(subject: str, email: Optional[str] = None) -> TokenResponse:
+    """Emite el par access/refresh para un `subject` (user_id o admin).
+
+    Si se pasa `email` (usuarios del funnel), el ACCESS token lleva además claims SSO
+    (`email` + `iss:"micelia"`) para que los dominios (p.ej. salud/biohack) resuelvan y
+    auto-provisionen al usuario por email — Micelia como Identity Provider (C119). El
+    `sub` sigue siendo el user_id (no rompe el refresh ni el /me de Micelia). El refresh
+    token NO lleva los claims SSO (solo se usa contra Micelia).
+    """
+    extra = {"email": email, "iss": "micelia"} if email else None
     return TokenResponse(
-        access_token=jwt_auth.create_access_token(subject=subject),
+        access_token=jwt_auth.create_access_token(subject=subject, extra_claims=extra),
         refresh_token=jwt_auth.create_refresh_token(subject=subject),
         token_type="bearer",
         expires_in=settings.jwt_access_token_expire_minutes * 60,
@@ -93,7 +102,7 @@ async def register(data: RegisterRequest, request: Request):
     await audit_logger.log_security_event(
         "register_success", request, {"user_id": user["user_id"]}
     )
-    return _issue_tokens(subject=user["user_id"])
+    return _issue_tokens(subject=user["user_id"], email=data.email)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -111,7 +120,7 @@ async def login(data: LoginRequest, request: Request):
             if not user["is_active"]:
                 raise HTTPException(status_code=403, detail="Account disabled")
             await user_store.touch_last_login(UUID(user["user_id"]))
-            return _issue_tokens(subject=user["user_id"])
+            return _issue_tokens(subject=user["user_id"], email=user.get("email"))
 
     # Fallback legacy: admin único configurado en .env
     if data.username != settings.auth_username or not jwt_auth.verify_password(
