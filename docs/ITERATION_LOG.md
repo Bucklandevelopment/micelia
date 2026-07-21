@@ -16,6 +16,28 @@
 
 ---
 
+## 2026-07-21 — Ciclo 114 (**el eslabón multi-dominio que 113 ciclos nunca pinearon: DOS dominios registrándose y lateando CONCURRENTEMENTE contra el gateway, con el store persistiendo AMBOS sin cruzarse. Y lo hago REPETIBLE, no una verificación manual de una vez**): tarea (b) del plan de C113 (pivot tras cerrar cobertura).
+
+**El hueco:** todos los guards del contrato SDK↔micelia pinean UN dominio — register (C86), heartbeat (C88), pull (C90), cross PUSH/PULL de uno (C92), ingest codking (C100). **Ninguno cubre la COEXISTENCIA**: varios dominios empujando a la vez al mismo store, cada uno persistido y consultable por su `source` sin contaminarse. El store como punto de encuentro de VARIOS dominios, no de uno.
+
+- **Hecho:** 1 commit — `4402178` `test(e2e): coexistencia cross-proyecto — 2 dominios register+heartbeat concurrentes → store`. `tests/test_cross_project_e2e_codex.py` (2 tests, `require_postgres` + `no_domain_probes`): arranca el **lifespan REAL** (store real) y conduce **DOS clientes SDK REALES** (el mismo código que los dominios vendorizan) con source `cybertools` + `canela`, cada uno por ASGITransport in-process. `register()`+`heartbeat()` de ambos lanzados **CONCURRENTEMENTE** (`asyncio.gather`):
+  - **delta por (source, event_type) == +1 exacto** → los 4 eventos (2 register + 2 heartbeat) persisten, independientes; append-only → robusto entre corridas.
+  - **aislamiento por source con `version` única por corrida (tag)** → el evento recién registrado de cada dominio aparece bajo SU source con el tag; muerde si el store colisiona sources.
+- **Verify:** **verde** — `make verify` sin postgres (los 2 skip): `1709 passed, 22 skipped`.
+- **Ejercido con postgres real:** contenedor efímero aislado (:5433, propio, sin tocar el `idm-postgres` del usuario ni `.env`) → **2 pass, robustos 3×**. **Mutation-verified:** colisionar el source al persistir (`source="cybertools"` fijo) **rompe AMBOS tests**. (Detalle honesto: la 1ª versión del test de aislamiento era **sensible a polución** —el store append-only acumula de corridas previas—; lo endurecí con una `version` única por corrida para mirar SOLO los eventos de ESTE test. La lección de C107 —el marker único contra polución— aplicada de nuevo.)
+- **Por qué REPETIBLE y no manual (decisión de diseño):** un e2e con 2 procesos-dominio reales (cybertools venv + ideacursi node) sería una verificación de una vez, frágil y ya medio-cubierta por C83(push)+C103(ideacursi)+C107(pull de 2). El SDK **es** el contrato cross-proyecto (el código que cada dominio vendoriza); conducirlo in-process contra el gateway real da la misma cadena, repetible en CI, sin arrancar 2 procesos. Extiende C92 (un dominio) a dos.
+- **Higiene:** contenedor efímero **eliminado**, stack del usuario **intacto (Exited)**, **machine parada**. `:8888/:5433` libres, sin residuales.
+
+**HITO — contrato del ecosistema COMPLETO y pineado:** con C114, el store queda pineado como punto de encuentro multi-dominio. El mapa de contratos SDK↔micelia está cerrado: mecanismos (register/heartbeat/pull/cross/ingest), coexistencia multi-dominio (C114), arranque local completo (C107), y cobertura núcleo ≥98% (C109-113). El orquestador Micelia está **medido, pineado y ejercido** de punta a punta.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. **DP-17** (biohack py3.14, único dominio sin ejercer live), **DP-7** (canales, latente), **DP-1..DP-4** (funnel, infra del dueño).
+
+**Mañana (Ciclo 115):** con el núcleo cerrado, los vectores que quedan son casi todos **del dueño**: **(a)** biohack (DP-17) si Jessicache decide python 3.13/bump — el último dominio. **(b)** preparar (no decidir) DP-1..DP-4 del funnel: docs/scaffolding para cuando Jessicache haga los pasos de panel (IONOS/port-forward/pmset). **(c)** si no hay vector nuevo de valor, un ciclo de consolidación honesto: revisar el ITERATION_LOG por DPs viejas mal-descritas (patrón C81-84) o contratos que hayan derivado. **Nota de rumbo:** el trabajo autonomizable de alto valor sobre Micelia se está agotando — los eslabones grandes (mecanismos, arranque, cobertura, coexistencia) están cerrados. De aquí en adelante conviene ser honesto sobre cuándo un ciclo rinde valor real vs relleno, y decírselo a Jessicache. Recordatorio honesto C66–C114: **la coexistencia multi-dominio es un contrato distinto del de un dominio** (el store como punto de encuentro); **repetible > manual cuando el SDK ES el contrato**; **el marker único contra la polución del store append-only** (C107 → C114); **reconocer cuándo el núcleo está cerrado y los vectores restantes son del dueño**. Local-first M1: jamás `docker-full`; parar/eliminar todo; stack de prod intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 113 (**cierro el mapa de cobertura del barrido de C112: cubro el último módulo <80% (`main.py`, 78%→99%) — las ramas de ÉXITO-init del lifespan, que solo corren con postgres**): tarea (a) del plan de C112.
 
 **El hueco, preciso:** las 42 líneas sin cubrir de `main.py` eran las ramas de **éxito-init** del lifespan (event/user/prompt store, prompt agent+executor, md_sync, scheduler, multi-agent) + sus **shutdowns**. Solo corren **con PostgreSQL**: hasta hoy solo se testeaba el arranque **degradado** (sin infra, todo a None, C85-107). El camino con infra presente — la app arrancando de VERDAD todos sus subsistemas — no estaba pineado.
