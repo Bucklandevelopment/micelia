@@ -16,6 +16,29 @@
 
 ---
 
+## 2026-07-21 — Ciclo 107 (**por FIN corro `run-ecosystem.sh start` de verdad — lo que C105 no pudo — y RINDE: education arranca DENTRO del flujo, el registry la ve `healthy=True, version=0.1.0`. Y ejercer el `stop` destapa un bug: dejaba huérfanos los procesos hijo de los dominios BE+FE**): tarea (a) del plan de C106. Con la infra ya desacoplada (C106), el arranque conjunto por fin es posible.
+
+**El arranque, ejercido (condiciones: imágenes ya pulled, deploy Exited → puertos libres):** `run-ecosystem.sh start` →
+1. **Preflight (doctor, C99)**: biohack ✗ (DP-17), resto OK → avisa y sigue (omite biohack).
+2. **Infra**: `docker-infra` crea **`micelia-postgres`/`micelia-redis`(:6380)/`micelia-ollama`** — nombres propios, **SIN colisión** con el `idm-*` de deploy (que sigue Exited, intacto). La prueba de que DP-21(a) desbloqueó el arranque.
+3. **Gateway** vivo en :8888. **Dominios nativos**: panel, canela (:3690+:8501), **ideacursi (:5050 BE)**, cybertools…, biohack-be omitido (DP-17).
+
+- **VERIFICADO EN VIVO (el cierre que C105 no dio):** el registry del gateway, sondeando dentro del flujo → **`research`(canela) `healthy=True`** (5.7ms) y **`education`(ideacursi) `healthy=True, version=0.1.0`** (22.77ms). El `/api/health` de ideacursi directo: `status: degraded, version: 0.1.0, category: education`. **Education arranca sola dentro de `start`**, con su version — la cadena deps(C102)+redis-stack:6380(C104)+desacople(C106) completa, end-to-end, vía el comando.
+- **BUG destapado al ejercer `stop` (y arreglado):** tras `run-ecosystem.sh stop`, seguían VIVOS el **uvicorn :3690 de canela** y el **nodemon :5050 de ideacursi**. Causa: los dominios multi-proceso arrancan con UN wrapper cuyo PID se guarda, pero sus hijos viven en OTROS puertos (canela `make run-all`=uvicorn+streamlit; ideacursi `npm run dev`=concurrently→BE+FE); `stop_svc` mataba solo el PID guardado + el ÚNICO puerto registrado → huérfanos comiendo RAM (viola "parar todo lo que se arranque").
+- **Hecho:** 1 commit — `a8eec26` `fix(scripts): stop mata el árbol de procesos, no solo el wrapper`. `kill_tree PID` mata la raíz + todos sus descendientes en post-order vía `pgrep -P` (portable macOS/Linux); `stop_svc` lo usa. +2 tests (árbol de NIETOS → prueba recursión en profundidad; anti-regresión de stop_svc). **Mutation-verified**: sin recursión los nietos sobreviven.
+- **Verify:** **verde** — `make verify`: `1654 passed, 19 skipped` (+2), cobertura ~95%.
+- **Higiene:** todo parado — maté el wrapper de `start`, `run-ecosystem.sh stop` (con el kill_tree nuevo… bueno, el fix llegó DESPUÉS; los huérfanos de esta corrida los maté a mano) + limpié uvicorn/nodemon/streamlit residuales; `micelia-*` **eliminados** por docker-down; el stack `deploy/` del usuario **intacto, todo Exited**; **podman machine detenida**. Todos los puertos (`:8888/:5050/:3690/:8501/:6060/:3001/:8000`) libres, cero residuales. Stack de prod intocado.
+
+**HITO — arranque local conjunto DEMOSTRADO:** `run-ecosystem.sh start` levanta infra desacoplada + gateway + dominios, con **2 slots (research+education) healthy vía el flujo** (cybertools llega más tarde en la secuencia; biohack omitido DP-17). El bucle deps→infra→arranque→registry, cerrado end-to-end. Y `stop` ahora limpia de verdad.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Queda **DP-17** (biohack py3.14 — el único dominio no arrancable: pyenv 3.13 o bump de requirements; su `pandas` no compila en 3.14, C102) y las de INFRA del funnel (**DP-1..DP-4**). DP-16/18/19/20/21 cerradas.
+
+**Mañana (Ciclo 108):** **(a)** el 4º mecanismo del contrato SDK↔micelia sin pin live: **auto-mat-ion registra/latea por Redis pub/sub, no REST** — con redis-stack ya arriba y auto-mat-ion deps OK (C102), verificar ese camino cerraría el último mecanismo (los otros: register/heartbeat REST C86/88, pull C90, cross C92, ingest codking C100). **(b)** biohack si Jessicache mueve DP-17 (con `setup` parametrizado al intérprete pyenv). **(c)** cobertura núcleo con valor real (mutation sobre `prompt_executor`/`frangels`). Recordatorio honesto C66–C107: **ejercer el flujo COMPLETO destapa lo que ejercer partes no da** (hoy: el `stop` que deja huérfanos, invisible hasta correr start+stop de verdad); **matar un wrapper ≠ matar su árbol** (los dominios BE+FE tienen hijos en otros puertos); **el fix de un bug operativo se prueba con un árbol de nietos, no con fe**; **verificar el arranque conjunto sin tocar el stack de prod** (micelia-* arriba, idm-* Exited). Local-first M1: jamás `docker-full`; parar/eliminar TODO el árbol; stack de prod intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 106 (**Jessicache elige DP-21(a): renombro la infra dev de micelia a `micelia-*` para desacoplarla del stack de PRODUCCIÓN-LOCAL `deploy/`. Y por primera vez en 3 ciclos, la verificación live RINDE VERDE: `micelia-redis` arranca sin colisión, con :6380, sin tocar el stack de prod del usuario**): tarea aprobada (C105 escaló DP-21, C106 ejecuta la opción a).
 
 **El fix, targetado (auditado el blast radius antes — lección C89):** solo lo que `docker-infra` levanta colisiona con la rutina, así que renombro **eso**, no los 14 contenedores.
