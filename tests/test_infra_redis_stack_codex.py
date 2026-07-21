@@ -33,11 +33,15 @@ _IDEACURSI_VECTOR = (
 )
 
 
-def _redis_service_block() -> str:
+def _service_block(service: str) -> str:
     text = _COMPOSE.read_text(encoding="utf-8")
-    m = re.search(r"^  redis:$(.*?)(?=^  [a-z_-]+:$)", text, re.M | re.S)
-    assert m, "no se encontró el servicio `redis` en docker-compose.yml"
+    m = re.search(rf"^  {re.escape(service)}:$(.*?)(?=^  [a-z_-]+:$)", text, re.M | re.S)
+    assert m, f"no se encontró el servicio `{service}` en docker-compose.yml"
     return m.group(1)
+
+
+def _redis_service_block() -> str:
+    return _service_block("redis")
 
 
 def test_compose_redis_is_redis_stack():
@@ -75,4 +79,54 @@ def test_ideacursi_vector_service_targets_6380_and_uses_redisearch():
     assert re.search(r"FT\.", text) or "createIndex" in text or "ft.create" in text.lower(), (
         "el RedisVectorService de ideacursi ya no usa RediSearch (FT.*); la exigencia de "
         "redis-stack podría haber cambiado."
+    )
+
+
+# =============================================================================
+# DP-21(a) — la infra DEV usa nombres `micelia-*`, desacoplada del stack prod `deploy/`
+# =============================================================================
+
+# Servicios que `docker-infra` levanta (los que colisionaban con deploy/). Su SERVICE key no
+# cambia (DNS interno intacto); su container_name sí, para no chocar con los `idm-*` de deploy.
+_INFRA_SERVICES = ("postgres", "redis", "ollama")
+
+
+def test_infra_containers_use_micelia_namespace_not_idm():
+    """La infra que `docker-infra` levanta usa container_name `micelia-*`, NO `idm-*`. Con
+    `idm-*` colisionaba con el stack de producción-local `deploy/` (mismos nombres) y bloqueaba
+    recrear la redis dev con el bind :6380 (DP-21, C105→C106). Mutación: volver a `idm-postgres`
+    → este pin muerde y recuerda la colisión."""
+    for svc in _INFRA_SERVICES:
+        block = _service_block(svc)
+        m = re.search(r"container_name:\s*(\S+)", block)
+        assert m, f"el servicio `{svc}` perdió su container_name"
+        name = m.group(1)
+        assert name == f"micelia-{svc}", (
+            f"el servicio `{svc}` usa container_name '{name}', no 'micelia-{svc}'. Si es "
+            f"'idm-{svc}' vuelve a colisionar con el stack prod `deploy/` (DP-21)."
+        )
+
+
+def test_infra_service_keys_unchanged_so_internal_dns_survives():
+    """El rename es SOLO del container_name: los SERVICE keys (postgres/redis/ollama) siguen,
+    porque el DNS interno del compose (`@postgres:5432`, `redis://redis:6379`, `ollama:11434`)
+    depende de ellos, no del container_name. Este pin garantiza que no se renombró de más."""
+    text = _COMPOSE.read_text(encoding="utf-8")
+    for svc in _INFRA_SERVICES:
+        assert re.search(rf"^  {svc}:$", text, re.M), (
+            f"desapareció el SERVICE key `{svc}:` del compose → el DNS interno que lo referencia "
+            f"(p.ej. postgresql://…@{svc}) se rompería. El rename debe tocar container_name, no "
+            f"el service key."
+        )
+
+
+def test_compose_network_is_micelia_not_idm():
+    """La red del compose de micelia es `micelia-network`, no `idm-network` — que colisionaba
+    con la red del stack `deploy/` ('idm-network is being used' al intentar recrear, C105)."""
+    text = _COMPOSE.read_text(encoding="utf-8")
+    assert re.search(r"name:\s*micelia-network", text), (
+        "la red del compose dejó de llamarse micelia-network."
+    )
+    assert not re.search(r"name:\s*idm-network", text), (
+        "reapareció `idm-network` → colisiona con la red del stack prod `deploy/` (DP-21)."
     )

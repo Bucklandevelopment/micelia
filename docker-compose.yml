@@ -29,7 +29,16 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: idm-postgres
+    # DP-21(a) (C106): la infra DEV de micelia (postgres/redis/ollama, lo que `docker-infra`
+    # levanta) usa nombres propios `micelia-*` para NO colisionar con el stack de
+    # PRODUCCIÓN-LOCAL `deploy/`, que usa `idm-postgres`/`idm-redis` (mismos nombres) y sirve
+    # micelia.idmmortality.com. Antes coincidían → `docker-infra` no podía recrear su redis
+    # (con el bind :6380 de C104) porque el `idm-redis` de deploy ocupaba el nombre, pineado
+    # por su `idm-core`. El SERVICE key (`postgres`) NO cambia → el DNS interno
+    # (`@postgres:5432`) sigue igual; solo cambia el nombre del contenedor en podman. Los
+    # servicios full-profile (idm-core, idm-biohack, …) mantienen `idm-*` (convención del
+    # rebrand, D.4; solo corren bajo docker-full, fuera de la rutina). Verificado C106.
+    container_name: micelia-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: idm
@@ -48,7 +57,7 @@ services:
 
   redis:
     image: redis/redis-stack:latest
-    container_name: idm-redis
+    container_name: micelia-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -73,7 +82,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: idm-ollama
+    container_name: micelia-ollama
     restart: unless-stopped
     ports:
       - "11434:11434"
@@ -480,5 +489,5 @@ volumes:
 
 networks:
   default:
-    name: idm-network
+    name: micelia-network
     driver: bridge
