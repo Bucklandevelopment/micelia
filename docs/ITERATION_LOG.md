@@ -16,6 +16,30 @@
 
 ---
 
+## 2026-07-21 — Ciclo 109 (**cobertura núcleo con valor REAL: `prompt_executor.py` estaba al 100% de LÍNEAS y aun así el mutation-testing destapó 5 comportamientos cubiertos-pero-no-asertados. 100% de líneas ≠ comportamiento pineado**): tarea (b) del plan de C108. No inflar cobertura tautológica — buscar huecos que muerdan.
+
+**Método (mutation-testing dirigido, no fe en el %):** el módulo ya tenía 17 tests y **100% de líneas** (0 missing). En vez de declararlo "cubierto", **apliqué mutaciones plausibles y corrí la suite**: las que SOBREVIVEN son los huecos reales. Verificando además que cada mutación **se aplicaba de verdad** (descarté 1 falso positivo cuyo patrón no casaba con el código). **5 supervivientes confirmados.**
+
+- **Hecho:** 1 commit — `c38d7cb` `test(prompt-executor): matar 5 mutaciones que sobrevivían pese a 100% de líneas`. 5 tests nuevos, cada uno mata una mutación:
+  1. **`iterations`**: al completar es previo+1 (mutación `+1→+5` sobrevivía — nadie asertaba el valor).
+  2. **review de `plan`**: el review corre para `work` **Y** `plan` (mutación que reducía a `("work",)` sobrevivía — ningún test revisaba un `plan`).
+  3. **review free-tier**: la 2ª llamada (el review) usa `prefer_paid=False` (mutación `→True` sobrevivía).
+  4. **canal del evento**: publica en **`idm.prompts`** con `{type:prompt.completed, prompt_id}` (la suite solo **contaba** la llamada, no asertaba canal/shape → la mutación del nombre sobrevivía).
+  5. **fallo de modelo (el más sutil)**: un resultado `success:False` debe tomar la rama INTENCIONADA (early-return con el **error del modelo**), no la del `except`. El test viejo asertaba solo `status=='failed'` — que el **KeyError del `except`** (al leer `result["content"]` ausente) **TAMBIÉN** producía → la mutación que desactiva el guard `if not result["success"]` **sobrevivía**. Ahora se aserta `error=='no quota'` + que NO se intenta review → distingue las dos ramas.
+- **Verify:** **verde** — `make verify`: `1662 passed, 19 skipped` (+5), cobertura ~95%.
+- **Disciplina:** **cada test verificado en ambos sentidos** — mata su mutación (suite ROJA con la mutación) Y pasa con el código real. No tautológicos por construcción. Cambio test-only.
+- **Higiene:** cero servicios/infra, `.env` no leído, sin residuales.
+
+**Lección de valor (para futuras cobertura):** **100% de líneas es un piso, no un techo.** El caso #5 es el ejemplar: dos ramas distintas (fallo intencionado vs KeyError accidental) convergían al mismo `status='failed'`, así que el test las confundía y la lógica de fallo podía romperse sin que nadie se enterara. **El mutation-testing es la herramienta correcta para medir cobertura REAL**; el % de líneas engaña.
+
+**DECISIÓN PENDIENTE (para Jessicache):** ninguna nueva. Siguen **DP-17** (biohack py3.14), **DP-7** (namespace de canales, latente) y **DP-1..DP-4** (funnel). El resto cerradas.
+
+**Mañana (Ciclo 110):** **(a)** aplicar el mismo mutation-testing dirigido a otro módulo núcleo con pins débiles — `frangels/orchestrator` (el motor de modelos, muchas ramas paid/free) o `compute_router` — donde probablemente haya supervivientes de valor. **(b)** biohack si Jessicache mueve DP-17 (parametrizar `setup` a pyenv 3.13). **(c)** si el núcleo está sólido, preparar (no decidir) DP-1..DP-4. Recordatorio honesto C66–C109: **100% de líneas ≠ cobertura real — medir con mutaciones, no con el %**; **verificar que la mutación se aplica** (un falso positivo por patrón que no casa desperdicia el hueco); **cada test de cobertura debe matar una mutación concreta** (si no, es tautológico); **dos ramas que convergen al mismo estado observable esconden bugs** (el fallo intencionado vs el KeyError). Local-first M1: jamás `docker-full`; parar todo; `.env` intocable.
+
+**Estado: IMPLEMENTADO ✅**
+
+---
+
 ## 2026-07-21 — Ciclo 108 (**voy a pinear "el 4º mecanismo: auto-mat-ion por Redis pub/sub" y la auditoría me corrige a MÍ: auto-mat-ion registra por REST (ya cubierto), y su pub/sub es el drift DP-7 conocido y latente que Micelia NO consume. Patrón C84: la premisa heredada — mía, de C107 — estaba mal**): tarea (a) del plan de C107. Auditoría de AMBOS lados antes de pinear (disciplina C100).
 
 **Lo que verifiqué (leyendo, no asumiendo):**
