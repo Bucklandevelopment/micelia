@@ -33,7 +33,11 @@ biohack con `SECRET_KEY` = el de Micelia + postgres/redis efímeros: token de Mi
 ## Rollout pendiente (pasos del dueño, a su ritmo)
 1. **Secreto compartido:** poner `SECRET_KEY` de biohack = `JWT_SECRET_KEY` de Micelia (en el
    `.env`/arranque de biohack). SIN esto, biohack rechaza los tokens de Micelia.
-2. **Rebuild del frontend de Micelia en el deploy** (la imagen actual no tiene el email-claim ni
+2. **Rebuild de idm-core (backend, email-claim) Y micelia-frontend (hand-off) en el deploy**
+   con `deploy/scripts/sso-rollout.sh` (usa `--force-recreate`: podman-compose NO recrea el
+   contenedor tras un rebuild, así el código nuevo no llegaba a producción). Verificado en vivo:
+   el token del funnel ya lleva `email`+`iss:micelia`.
+   ~~Rebuild del frontend de Micelia~~ (la imagen actual no tiene el email-claim ni
    el hand-off): `cd deploy && podman compose build micelia-frontend && podman compose up -d`.
 3. **Arrancar biohack** (front `:5173` + back `:8080`, python 3.11, con postgres) con el secreto
    compartido. Idealmente exponerlo en LAN para el móvil (paso aparte).
