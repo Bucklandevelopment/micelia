@@ -69,7 +69,7 @@ Checklist DNS:
       pegarla en `~/.config/utopia/ddns.env` (plantilla ya creada).
 - [ ] Correr una vez `deploy/scripts/ddns-ionos.sh bootstrap` — a partir de ahí
       el agente launchd `com.utopia.ddns` (cada 300 s) mantiene el A al día
-      (la IP de Digi es dinámica: cambió el mismo 2026-07-17).
+      (la IP pública del ISP es dinámica: cambió el mismo 2026-07-17).
 - [ ] Verificar propagación (`dig +short micelia.idmmortality.com`).
 
 ---
@@ -143,13 +143,13 @@ acceso Caddy en el volumen `caddy_data` (`/data/access.log`), backups en
 ## 7. Despliegue REAL — LAN-only detrás de CGNAT (2026-07-21)
 
 > **Contexto:** al desplegar de verdad se confirmó que la conexión está **detrás de
-> CGNAT** (Digi no da IP pública enrutable). El plan §1-§3 (A-record → IP de casa +
+> CGNAT** (el ISP no da IP pública enrutable). El plan §1-§3 (A-record → IP de casa +
 > port-forward + Let's Encrypt público) **NO es viable**: ni el port-forward llega, ni
 > ACME HTTP-01/TLS-ALPN puede validar. Se pivota a **acceso LAN-only** por ahora.
 
 ### Qué cambió (ejecutado)
-- **Hosting:** solo LAN. Acceso desde `https://MacBook-Pro-de-null.local` (mDNS/Bonjour)
-  o `https://192.168.1.100` (IP LAN, reservar en DHCP del TP-Link para que no cambie).
+- **Hosting:** solo LAN. Acceso desde el hostname mDNS/Bonjour del host (`https://<nombre-del-mac>.local`)
+  o su IP LAN reservada en el DHCP del TP-Link (para que no cambie).
 - **TLS = CA interna de Caddy** (Opción B), NO Let's Encrypt (imposible tras CGNAT).
   El bloque `micelia.idmmortality.com` del `deploy/caddy/Caddyfile` pasó a incluir la IP
   LAN y `tls internal` (para el móvil/otros dispositivos). El bucle de ACME público queda
