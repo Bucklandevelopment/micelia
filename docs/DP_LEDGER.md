@@ -42,10 +42,11 @@
 | DP-20 | ideacursi exige redis-stack en :6380 | **CERRADA** (C104) | El compose expone `:6380` (RediSearch para el vector). |
 | DP-21 | Colisión dev/prod de `container_name` | **CERRADA** (C106) | Infra dev de micelia renombrada a `micelia-*`. |
 | C84-minor | Eliminar el slot `devtools`/`ollama_code_*` | **CERRADA** (C118) | El dueño confirmó que `ollama-code` no es proyecto planificado. Borrado de config (`ollama_code_url`/`_enabled`), `settings.services` y el registry → **5 slots** (health/research/education/security/testlab). Pin de eliminación en `test_registry_domains`. |
+| DP-22 | Red de nodos externos (heartbeat opt-in + publicación del repo) | **ABIERTA** | 2026-09-06: diseño mínimo documentado en `docs/NODE_NETWORK_DESIGN.md` (push HTTP opt-in, `node_id` anónimo, sin conexión permanente, sin datos personales). No implementado. Decisión del dueño: cuándo/si activarlo, y si el repo se publica en paralelo al tutorial del blog o antes. |
 
 ## Lo genuinamente PENDIENTE del dueño (resumen)
 
-- **Decisiones del dueño:** DP-5 (rebrand env-vars). *(DP-6 cerrada C119 — SSO Micelia→biohack; ideacursi fuera de SSO por decisión, mantiene su OAuth. DP-17 cerrada C117 — biohack en python 3.11; C84-minor cerrada C118 — slot devtools borrado.)*
+- **Decisiones del dueño:** DP-5 (rebrand env-vars), DP-22 (red de nodos externos — ver `NODE_NETWORK_DESIGN.md`). *(DP-6 cerrada C119 — SSO Micelia→biohack; ideacursi fuera de SSO por decisión, mantiene su OAuth. DP-17 cerrada C117 — biohack en python 3.11; C84-minor cerrada C118 — slot devtools borrado.)*
 - **Pasos humanos de ejecución (no decisión):** DP-1..DP-4 → panel IONOS (A-record + API key DDNS), port-forward TP-Link 80/443, `pmset`. Verificables con `scripts/funnel-preflight.sh` (C115).
 - **Decidida, no re-listar como pendiente:** DP-7 (documentar, no migrar).
 

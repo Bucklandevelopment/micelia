@@ -251,6 +251,11 @@ services:
       - VITAL_REDIS_URL=redis://redis:6379/0
       - OLLAMA_BASE_URL=http://ollama:11434
       - LANCEDB_URI=/app/data/vectors
+      # Modelos ligeros (el Dockerfile de canela NO copia .env, se fija aquí).
+      # nomic-embed-text = 768 dims → EMBEDDING_DIMENSIONS debe acompañar (default del código es 1024).
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIMENSIONS=768
+      - LLM_MODEL=llama3.2:3b
     volumes:
       - canela_data:/app/data
     depends_on:
@@ -287,7 +292,7 @@ services:
       - DATABASE_URL=postgresql://idm:idm_password@postgres:5432/ideacursi
       - REDIS_URL=redis://redis:6379/0
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=deepseek-coder-v2:16b
+      - OLLAMA_MODEL=qwen2.5-coder:1.5b
       # GitHub OAuth (placeholder - set real values for auth)
       - GITHUB_CLIENT_ID=placeholder-set-real-value
       - GITHUB_CLIENT_SECRET=placeholder-set-real-value
@@ -307,8 +312,11 @@ services:
   # ideacursi-tool Frontend
   ideacursi-frontend:
     build:
-      context: ../ideacursi-tool/frontend
-      dockerfile: Dockerfile
+      # Contexto = raíz de projects (igual que idm-dashboard): el tailwind.config
+      # importa ../../design-system/*, que no existe dentro del contexto local del
+      # frontend. El Dockerfile de deploy/ reproduce el layout y sirve next start :3000.
+      context: ..
+      dockerfile: deploy/dockerfiles/ideacursi-frontend.Dockerfile
     container_name: idm-education-ui
     profiles: ["full", "education"]
     restart: unless-stopped

@@ -52,7 +52,7 @@ RESET  := \033[0m
         _check-venv _check-port-8888 _check-infra test test-unit test-e2e test-sdk test-fast cov verify \
         lint format typecheck rebrand-verify \
         dev dev-verbose dev-idm _dev-banner frontend-install frontend-dev frontend-build frontend-lint \
-        docker-infra docker-up docker-full docker-monitoring docker-health docker-down docker-logs docker-ps \
+        docker-infra docker-up docker-full docker-monitoring docker-health docker-lite docker-down docker-logs docker-ps docker-clean \
         clean clean-all version
 
 # Modo verbosidad de `make dev`. Override con `VERBOSE=1 make dev` o `make dev-verbose`.
@@ -343,26 +343,39 @@ docker-infra: ## Levanta SOLO postgres + redis + ollama (mínimo para dev local)
 	podman-compose up -d postgres redis ollama
 	@printf "$(GREEN)✓ Infra arriba. Estado: $(BOLD)make docker-ps$(RESET)\n"
 
-docker-up: ## Levanta gateway Micelia + infra (perfil default)
+docker-up: docker-down ## Levanta gateway Micelia + infra (perfil default). Hace down antes.
 	podman-compose up -d
 
-docker-full: ## Levanta el ecosistema completo (--profile full)
+docker-full: docker-down ## Levanta el ecosistema completo (--profile full). Hace down antes.
 	podman-compose --profile full up -d
 
-docker-monitoring: ## Añade Prometheus + Grafana (--profile monitoring)
+docker-monitoring: ## Añade Prometheus + Grafana (--profile monitoring) — overlay, NO hace down
 	podman-compose --profile monitoring up -d
 
-docker-health: ## Levanta + biohack-app (--profile health) — dominio salud
+docker-health: docker-down ## Levanta + biohack-app (--profile health) — dominio salud. Hace down antes.
 	podman-compose --profile health up -d
 
-docker-down: ## Detiene y elimina todos los contenedores
-	podman-compose down
+docker-lite: docker-down ## Levanta infra + biohack (health) + canela (research) — subset ligero. Hace down antes.
+	COMPOSE_PROFILES=health,research podman-compose --profile health --profile research up -d
+
+docker-down: ## Detiene y elimina el stack (robusto: fuerza el pod si podman-compose se atasca)
+	-@podman-compose down 2>/dev/null || true
+	-@podman pod rm -f pod_micelia 2>/dev/null || true
+	-@podman network rm -f micelia-network idm-network 2>/dev/null || true
+	@echo "✅ Stack detenido y limpio (volúmenes/DB intactos)."
 
 docker-logs: ## Tail de logs del gateway (intenta micelia-core, fallback idm-core)
 	@podman-compose logs -f micelia-core 2>/dev/null || podman-compose logs -f idm-core
 
 docker-ps: ## Estado actual de los contenedores del stack
 	podman-compose ps
+
+docker-clean: ## Recupera disco: purga imágenes/caché sin usar + fstrim de la VM (NO toca volúmenes/DBs)
+	@echo "==> Espacio ANTES:" && df -h / | tail -1
+	podman system prune -af
+	@echo "==> fstrim dentro de la VM (devuelve bloques al host)..."
+	podman machine ssh 'sudo fstrim -av' || echo "(fstrim omitido: ¿VM sin soporte discard?)"
+	@echo "==> Espacio DESPUÉS:" && df -h / | tail -1
 
 # =============================================================================
 # MANTENIMIENTO
